@@ -1,0 +1,22 @@
+services:
+  backend:
+    build: ./backend
+    environment:
+      EASYSHARE_SECRET_KEY: ${EASYSHARE_SECRET_KEY:-please-change-me-in-production}
+      EASYSHARE_DATABASE_URL: sqlite:////data/easyshare.db
+      EASYSHARE_STORAGE_DIR: /data/storage
+      EASYSHARE_CORS_ORIGINS: http://localhost:8080
+    volumes:
+      - backend-data:/data
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  backend-data:

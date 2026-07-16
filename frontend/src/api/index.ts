@@ -1,0 +1,120 @@
+import { api, setToken } from "./client";
+import type { Package, PublicShare, Share, User, Visibility } from "./types";
+
+export const authApi = {
+  async register(email: string, username: string, password: string): Promise<User> {
+    return api.request<User>("/auth/register", {
+      method: "POST",
+      body: { email, username, password },
+      auth: false,
+    });
+  },
+
+  async login(usernameOrEmail: string, password: string): Promise<User> {
+    const form = new URLSearchParams();
+    form.set("username", usernameOrEmail);
+    form.set("password", password);
+    const { access_token } = await api.request<{ access_token: string }>(
+      "/auth/login",
+      { method: "POST", form, auth: false },
+    );
+    setToken(access_token);
+    return authApi.me();
+  },
+
+  async me(): Promise<User> {
+    return api.request<User>("/auth/me");
+  },
+};
+
+export const packagesApi = {
+  list(): Promise<Package[]> {
+    return api.request<Package[]>("/packages");
+  },
+  get(id: number): Promise<Package> {
+    return api.request<Package>(`/packages/${id}`);
+  },
+  create(name: string, description: string | null): Promise<Package> {
+    return api.request<Package>("/packages", {
+      method: "POST",
+      body: { name, description },
+    });
+  },
+  remove(id: number): Promise<void> {
+    return api.request<void>(`/packages/${id}`, { method: "DELETE" });
+  },
+  uploadFile(id: number, file: File): Promise<void> {
+    const form = new FormData();
+    form.append("file", file);
+    return api.request<void>(`/packages/${id}/files`, { method: "POST", form });
+  },
+  removeFile(packageId: number, fileId: number): Promise<void> {
+    return api.request<void>(`/packages/${packageId}/files/${fileId}`, {
+      method: "DELETE",
+    });
+  },
+};
+
+export const sharesApi = {
+  get(packageId: number): Promise<Share> {
+    return api.request<Share>(`/packages/${packageId}/share`);
+  },
+  enable(
+    packageId: number,
+    visibility: Visibility,
+    allowedEmails: string[],
+  ): Promise<Share> {
+    return api.request<Share>(`/packages/${packageId}/share`, {
+      method: "POST",
+      body: { visibility, allowed_emails: allowedEmails },
+    });
+  },
+  update(
+    packageId: number,
+    payload: {
+      visibility?: Visibility;
+      is_enabled?: boolean;
+      allowed_emails?: string[];
+    },
+  ): Promise<Share> {
+    return api.request<Share>(`/packages/${packageId}/share`, {
+      method: "PATCH",
+      body: payload,
+    });
+  },
+  disable(packageId: number): Promise<void> {
+    return api.request<void>(`/packages/${packageId}/share`, { method: "DELETE" });
+  },
+};
+
+export const publicApi = {
+  view(token: string): Promise<PublicShare> {
+    return api.request<PublicShare>(`/s/${token}`, { auth: false });
+  },
+  access(token: string, email: string): Promise<PublicShare> {
+    return api.request<PublicShare>(`/s/${token}/access`, {
+      method: "POST",
+      body: { email },
+      auth: false,
+    });
+  },
+  downloadUrl(token: string, fileIds: number[], email: string | null): string {
+    const params = new URLSearchParams();
+    for (const id of fileIds) {
+      params.append("file_ids", String(id));
+    }
+    if (email) {
+      params.set("email", email);
+    }
+    const query = params.toString();
+    return `/api/s/${token}/download${query ? `?${query}` : ""}`;
+  },
+  fileUrl(token: string, fileId: number, email: string | null): string {
+    const params = new URLSearchParams();
+    if (email) {
+      params.set("email", email);
+    }
+    const query = params.toString();
+    return `/api/s/${token}/files/${fileId}/download${query ? `?${query}` : ""}`;
+  },
+};
