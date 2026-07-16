@@ -79,6 +79,20 @@ EASYSHARE_SECRET_KEY="$(openssl rand -hex 32)" docker compose up --build
 
 The UI is served at http://localhost:8080 and the API at http://localhost:8000.
 
+## Production notes
+
+The backend starts uvicorn with `--proxy-headers --forwarded-allow-ips='*'` so
+it trusts the `X-Forwarded-For` header set by the nginx proxy. This is what lets
+rate limiting and request logs see the real client IP instead of the proxy's.
+
+**Caveat:** `--forwarded-allow-ips='*'` trusts that header from _any_ immediate
+peer, so it is only safe when the backend is reachable **only** through nginx.
+The default `docker-compose.yml` publishes the backend on `8000:8000` for
+convenience — in production, remove that port mapping (or bind it to
+`127.0.0.1:8000:8000`) so clients cannot reach uvicorn directly and spoof
+`X-Forwarded-For` to bypass IP-based rate limiting. Alternatively, replace `'*'`
+with the proxy's actual network range (e.g. the Docker subnet).
+
 ## Environment variables
 
 The backend is configured entirely through environment variables, all prefixed
