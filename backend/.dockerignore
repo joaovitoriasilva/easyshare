@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local dev artifacts
+.env
+*.db
+*.sqlite3
+storage/
+
+# Version control / editor
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Tests
+tests/
+
+# Docs
+README.md

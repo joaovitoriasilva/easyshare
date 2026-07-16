@@ -3,6 +3,7 @@ import { RouterLink, RouterView, useRouter } from "vue-router";
 import { Package2, LogOut } from "lucide-vue-next";
 import { useAuthStore } from "@/stores/auth";
 import { Button } from "@/components/ui";
+import ThemeToggle from "@/components/ThemeToggle.vue";
 
 const auth = useAuthStore();
 const router = useRouter();
@@ -21,9 +22,10 @@ function logout(): void {
           <Package2 class="h-5 w-5 text-primary" />
           <span>EasyShare</span>
         </RouterLink>
-        <nav v-if="auth.user" class="flex items-center gap-3">
-          <span class="text-sm text-muted-foreground">{{ auth.user.username }}</span>
-          <Button variant="ghost" size="sm" @click="logout">
+        <nav class="flex items-center gap-3">
+          <span v-if="auth.user" class="text-sm text-muted-foreground">{{ auth.user.username }}</span>
+          <ThemeToggle />
+          <Button v-if="auth.user" variant="ghost" size="sm" @click="logout">
             <LogOut class="h-4 w-4" />
             Sign out
           </Button>

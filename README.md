@@ -79,6 +79,45 @@ EASYSHARE_SECRET_KEY="$(openssl rand -hex 32)" docker compose up --build
 
 The UI is served at http://localhost:8080 and the API at http://localhost:8000.
 
+## Environment variables
+
+The backend is configured entirely through environment variables, all prefixed
+with `EASYSHARE_`. They can be set via a `backend/.env` file (see
+`backend/.env` for a template to copy) when running locally, or passed as
+`environment` entries to the `backend` service in `docker-compose.yml` when
+running with Docker.
+
+| Variable                                | Default                            | Description                                                                 |
+| ---------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------- |
+| `EASYSHARE_SECRET_KEY`                   | `change-me-in-production-this-is-not-secure` | Secret used to sign JWT access tokens. **Must** be overridden with a long, random value in production (e.g. `openssl rand -hex 32`). |
+| `EASYSHARE_ENVIRONMENT`                  | `development`                       | Deployment environment name (e.g. `development`, `production`).             |
+| `EASYSHARE_DEBUG`                        | `false`                              | Enables debug mode when set to `true`.                                      |
+| `EASYSHARE_ACCESS_TOKEN_EXPIRE_MINUTES`  | `1440`                               | Lifetime of JWT access tokens, in minutes.                                   |
+| `EASYSHARE_ALGORITHM`                    | `HS256`                              | JWT signing algorithm.                                                      |
+| `EASYSHARE_DATABASE_URL`                 | `sqlite:///./easyshare.db`           | SQLAlchemy database URL. Use a `postgresql+psycopg://...` URL in production. |
+| `EASYSHARE_STORAGE_DIR`                  | `./storage`                          | Directory (or mounted volume) where uploaded files are stored.              |
+| `EASYSHARE_MAX_FILE_SIZE`                | `104857600` (100 MB)                 | Maximum size, in bytes, allowed for a single uploaded file.                  |
+| `EASYSHARE_MAX_FILES_PER_PACKAGE`        | `50`                                  | Maximum number of files allowed in a single package.                        |
+| `EASYSHARE_CORS_ORIGINS`                 | `http://localhost:5173`              | Comma-separated list of allowed CORS origins.                               |
+
+When running locally, edit `backend/.env` directly (it is loaded automatically
+by the backend on startup) or export the variables in your shell before
+running `uvicorn`.
+
+When running with Docker Compose, set the variables on your shell before
+starting the stack, or add them to the `backend.environment` section of
+`docker-compose.yml`:
+
+```bash
+EASYSHARE_SECRET_KEY="$(openssl rand -hex 32)" \
+EASYSHARE_DATABASE_URL="postgresql+psycopg://user:pass@host/db" \
+docker compose up --build
+```
+
+The frontend has no build-time environment variables: in development it proxies
+`/api` requests to `http://localhost:8000` (see `frontend/vite.config.ts`), and
+in the Docker image `nginx.conf` proxies `/api` to the `backend` service.
+
 ## Testing & quality
 
 ```bash
