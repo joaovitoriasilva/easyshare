@@ -49,7 +49,7 @@ onMounted(load);
     <div>
       <h1 class="text-2xl font-bold">Share activity</h1>
       <p class="text-muted-foreground">
-        Access and downloads of the packages you have shared.
+        Access and downloads of the packages you have shared
       </p>
     </div>
 

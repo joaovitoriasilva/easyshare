@@ -48,7 +48,7 @@ async function submit(): Promise<void> {
     <Card>
       <CardHeader>
         <CardTitle>Welcome back</CardTitle>
-        <CardDescription>Sign in to manage your shared packages.</CardDescription>
+        <CardDescription>Sign in to manage your shared packages</CardDescription>
       </CardHeader>
       <form @submit.prevent="submit">
         <CardContent class="space-y-4">

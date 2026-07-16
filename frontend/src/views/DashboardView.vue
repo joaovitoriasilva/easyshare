@@ -68,7 +68,7 @@ onMounted(load);
     <div class="flex items-center justify-between">
       <div>
         <h1 class="text-2xl font-bold">Your packages</h1>
-        <p class="text-muted-foreground">Create packages and share them securely.</p>
+        <p class="text-muted-foreground">Create packages and share them securely</p>
       </div>
       <Button @click="showForm = !showForm">
         <Plus class="h-4 w-4" /> New package

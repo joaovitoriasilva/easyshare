@@ -60,7 +60,7 @@ onMounted(load);
   <div class="space-y-6">
     <div>
       <h1 class="text-2xl font-bold">Audit log</h1>
-      <p class="text-muted-foreground">All security events across the instance.</p>
+      <p class="text-muted-foreground">All security events across the instance</p>
     </div>
 
     <form class="flex flex-wrap items-end gap-3" @submit.prevent="applyFilters">

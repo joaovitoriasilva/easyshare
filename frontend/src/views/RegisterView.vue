@@ -32,6 +32,15 @@ const loading = ref(false);
 const emailValid = computed(() => isValidEmail(email.value));
 const showEmailError = computed(() => email.value.length > 0 && !emailValid.value);
 
+// Mirror the backend constraints so the button only enables for a submittable form.
+const usernameValid = computed(() => /^[A-Za-z0-9_.-]{3,64}$/.test(username.value));
+const passwordValid = computed(
+  () => password.value.length >= 8 && password.value.length <= 128,
+);
+const canSubmit = computed(
+  () => emailValid.value && usernameValid.value && passwordValid.value,
+);
+
 async function submit(): Promise<void> {
   error.value = null;
   loading.value = true;
@@ -52,7 +61,7 @@ async function submit(): Promise<void> {
     <Card>
       <CardHeader>
         <CardTitle>Create your account</CardTitle>
-        <CardDescription>Start creating and sharing packages.</CardDescription>
+        <CardDescription>Start creating and sharing packages</CardDescription>
       </CardHeader>
       <form @submit.prevent="submit">
         <CardContent class="space-y-4">
@@ -65,6 +74,9 @@ async function submit(): Promise<void> {
           <div class="space-y-2">
             <Label for="username">Username</Label>
             <Input id="username" v-model="username" placeholder="alice" />
+            <p class="text-xs text-muted-foreground">
+              3+ characters: letters, numbers, dot, underscore or hyphen.
+            </p>
           </div>
           <div class="space-y-2">
             <Label for="password">Password</Label>
@@ -74,7 +86,7 @@ async function submit(): Promise<void> {
           <Alert v-if="error" kind="error">{{ error }}</Alert>
         </CardContent>
         <CardFooter class="flex flex-col gap-3">
-          <Button type="submit" class="w-full" :disabled="loading || !emailValid">
+          <Button type="submit" class="w-full" :disabled="loading || !canSubmit">
             {{ loading ? "Creating..." : "Create account" }}
           </Button>
           <p class="text-sm text-muted-foreground">
