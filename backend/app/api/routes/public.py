@@ -6,12 +6,13 @@ import os
 import tempfile
 import zipfile
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from starlette.background import BackgroundTask
 
 from app.api.deps import DbSession
+from app.core.rate_limit import SENSITIVE, limiter
 from app.models.models import PackageFile, Share, ShareVisibility
 from app.schemas.schemas import (
     PublicFile,
@@ -77,8 +78,9 @@ def view_share(token: str, db: DbSession) -> PublicShareRead:
 
 
 @router.post("/{token}/access", response_model=PublicShareRead)
+@limiter.limit(SENSITIVE)
 def access_share(
-    token: str, payload: ShareAccessRequest, db: DbSession
+    request: Request, token: str, payload: ShareAccessRequest, db: DbSession
 ) -> PublicShareRead:
     """Unlock a restricted share by providing an allowed email address."""
     share = _get_active_share(db, token)

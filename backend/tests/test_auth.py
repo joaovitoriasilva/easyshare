@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from app.core.rate_limit import limiter
 from tests.conftest import register_and_login
 
 
@@ -88,3 +89,20 @@ def test_invalid_token_rejected(client: TestClient) -> None:
         "/api/auth/me", headers={"Authorization": "Bearer " + "not-a-valid-token"}
     )
     assert resp.status_code == 401
+
+
+def test_login_rate_limited(client: TestClient) -> None:
+    """The SENSITIVE limit returns 429 once the per-minute cap is exceeded."""
+    limiter.enabled = True
+    try:
+        statuses = [
+            client.post(
+                "/api/auth/login",
+                data={"username": "ghost", "password": "nope"},
+            ).status_code
+            for _ in range(11)
+        ]
+    finally:
+        limiter.enabled = False
+    assert statuses[-1] == 429
+    assert 429 not in statuses[:10]

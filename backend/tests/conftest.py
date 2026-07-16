@@ -12,9 +12,14 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.deps import get_db
+from app.core.rate_limit import limiter
 from app.db.session import Base
 from app.main import app
 from app.services import storage as storage_module
+
+# Rate limiting is disabled by default in tests; the dedicated rate-limit test
+# re-enables it explicitly.
+limiter.enabled = False
 
 
 @pytest.fixture

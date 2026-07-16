@@ -17,5 +17,6 @@ COPY . .
 
 EXPOSE 8000
 
-# Apply migrations then start the API.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# Apply migrations then start the API. --proxy-headers makes uvicorn trust the
+# X-Forwarded-For from the nginx proxy so rate limiting keys on the real client.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"]

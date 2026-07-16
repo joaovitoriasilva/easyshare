@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
 
+    # Rate limiting
+    rate_limit_enabled: bool = True
+    rate_limit_storage_uri: str = "memory://"
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_cors(cls, value: object) -> object:

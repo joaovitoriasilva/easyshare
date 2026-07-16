@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import or_, select
 
 from app.api.deps import CurrentUser, DbSession
 from app.core.config import settings
+from app.core.rate_limit import SENSITIVE, limiter
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.models import User
 from app.schemas.schemas import AuthConfig, Token, UserCreate, UserRead
@@ -24,7 +25,8 @@ def auth_config() -> AuthConfig:
 
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-def register(payload: UserCreate, db: DbSession) -> User:
+@limiter.limit(SENSITIVE)
+def register(request: Request, payload: UserCreate, db: DbSession) -> User:
     """Register a new user account."""
     if not settings.allow_registration:
         raise HTTPException(
@@ -53,7 +55,9 @@ def register(payload: UserCreate, db: DbSession) -> User:
 
 
 @router.post("/login", response_model=Token)
+@limiter.limit(SENSITIVE)
 def login(
+    request: Request,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: DbSession,
 ) -> Token:
