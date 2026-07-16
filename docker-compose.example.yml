@@ -1,5 +1,5 @@
 services:
-  app:
+  easyshare:
     build: .
     environment:
       # Run in production mode so the startup guard enforces a strong secret and
