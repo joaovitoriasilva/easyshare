@@ -1,0 +1,25 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Env files
+.env
+.env.*
+
+# Docker compose files
+docker-compose.yml
+
+# Logs
+*.log
+
+# Python cache
+__pycache__/
+.venv/
+
+# mypycache
+.mypy_cache/

@@ -1,0 +1,38 @@
+services:
+  backend:
+    build: ./backend
+    environment:
+      # Run in production mode so the startup guard enforces a strong secret and
+      # disabled debug, failing fast on insecure configuration.
+      EASYSHARE_ENVIRONMENT: production
+      # Required: Compose refuses to start if this is unset. Use a 32+ character
+      # random value, e.g. `export EASYSHARE_SECRET_KEY="$(openssl rand -hex 32)"`.
+      EASYSHARE_SECRET_KEY: ${EASYSHARE_SECRET_KEY:?set to a 32+ char random value, e.g. openssl rand -hex 32}
+      EASYSHARE_DATABASE_URL: sqlite:////data/easyshare.db
+      EASYSHARE_STORAGE_DIR: /data/storage
+      EASYSHARE_CORS_ORIGINS: http://localhost:8080
+      EASYSHARE_ALLOW_REGISTRATION: "true"
+      # The backend is only reachable through the frontend proxy on the internal
+      # compose network (it is not published to the host), so trusting
+      # X-Forwarded-For from any peer is safe here. If you publish the backend
+      # port, set this to the proxy's address instead of "*".
+      EASYSHARE_FORWARDED_ALLOW_IPS: "*"
+      # Structured JSON logs for production log shippers.
+      EASYSHARE_LOG_FORMAT: json
+    volumes:
+      - backend-data:/data
+    # Intentionally not published to the host: only the frontend container talks
+    # to the backend over the compose network. This prevents direct access and
+    # X-Forwarded-For spoofing that could bypass IP-based rate limiting.
+    expose:
+      - "8000"
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "8080:8080"
+
+volumes:
+  backend-data:

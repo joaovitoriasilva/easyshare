@@ -1,0 +1,20 @@
+# Dependencies / build output
+node_modules/
+dist/
+coverage/
+
+# Local dev artifacts
+.env
+.env.*
+
+# Version control / editor
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Tests
+src/test/
+
+# Docs
+README.md
