@@ -6,8 +6,9 @@ import { packagesApi, sharesApi } from "@/api";
 import { ApiError, getToken } from "@/api/client";
 import type { Package, Share, Visibility } from "@/api/types";
 import { formatBytes } from "@/lib/format";
-import { useToastStore } from "@/stores/toast";
+import { useToasts } from "@/composables/useToasts";
 import {
+  Alert,
   Button,
   Card,
   CardContent,
@@ -20,7 +21,7 @@ import {
 
 const route = useRoute();
 const router = useRouter();
-const toast = useToastStore();
+const toast = useToasts();
 const packageId = Number(route.params.id);
 
 const pkg = ref<Package | null>(null);
@@ -196,7 +197,7 @@ onMounted(load);
       <ArrowLeft class="h-4 w-4" /> Back
     </Button>
 
-    <p v-if="error" class="text-sm text-destructive" role="alert">{{ error }}</p>
+    <Alert v-if="error" kind="error">{{ error }}</Alert>
     <p v-if="loading" class="text-muted-foreground">Loading...</p>
 
     <template v-else-if="pkg">

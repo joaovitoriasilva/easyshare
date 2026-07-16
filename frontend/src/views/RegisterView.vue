@@ -3,8 +3,9 @@ import { ref } from "vue";
 import { useRouter, RouterLink } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { ApiError } from "@/api/client";
-import { useToastStore } from "@/stores/toast";
+import { useToasts } from "@/composables/useToasts";
 import {
+  Alert,
   Button,
   Card,
   CardContent,
@@ -18,7 +19,7 @@ import {
 
 const auth = useAuthStore();
 const router = useRouter();
-const toast = useToastStore();
+const toast = useToasts();
 
 const email = ref("");
 const username = ref("");
@@ -63,7 +64,7 @@ async function submit(): Promise<void> {
             <Input id="password" v-model="password" type="password" />
             <p class="text-xs text-muted-foreground">At least 8 characters.</p>
           </div>
-          <p v-if="error" class="text-sm text-destructive" role="alert">{{ error }}</p>
+          <Alert v-if="error" kind="error">{{ error }}</Alert>
         </CardContent>
         <CardFooter class="flex flex-col gap-3">
           <Button type="submit" class="w-full" :disabled="loading">

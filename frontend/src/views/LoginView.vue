@@ -3,8 +3,9 @@ import { ref } from "vue";
 import { useRoute, useRouter, RouterLink } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { ApiError } from "@/api/client";
-import { useToastStore } from "@/stores/toast";
+import { useToasts } from "@/composables/useToasts";
 import {
+  Alert,
   Button,
   Card,
   CardContent,
@@ -19,7 +20,7 @@ import {
 const auth = useAuthStore();
 const router = useRouter();
 const route = useRoute();
-const toast = useToastStore();
+const toast = useToasts();
 
 const identifier = ref("");
 const password = ref("");
@@ -59,7 +60,7 @@ async function submit(): Promise<void> {
             <Label for="password">Password</Label>
             <Input id="password" v-model="password" type="password" />
           </div>
-          <p v-if="error" class="text-sm text-destructive" role="alert">{{ error }}</p>
+          <Alert v-if="error" kind="error">{{ error }}</Alert>
         </CardContent>
         <CardFooter class="flex flex-col gap-3">
           <Button type="submit" class="w-full" :disabled="loading">

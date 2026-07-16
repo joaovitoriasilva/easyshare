@@ -5,8 +5,9 @@ import { FileArchive, Plus, Share2 } from "lucide-vue-next";
 import { packagesApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { Package } from "@/api/types";
-import { useToastStore } from "@/stores/toast";
+import { useToasts } from "@/composables/useToasts";
 import {
+  Alert,
   Button,
   Card,
   CardContent,
@@ -17,7 +18,7 @@ import {
   Label,
 } from "@/components/ui";
 
-const toast = useToastStore();
+const toast = useToasts();
 
 const packages = ref<Package[]>([]);
 const loading = ref(true);
@@ -51,7 +52,7 @@ async function create(): Promise<void> {
     name.value = "";
     description.value = "";
     showForm.value = false;
-    toast.success("Package created", { description: created.name });
+    toast.success(`Created "${created.name}"`);
   } catch (err) {
     toast.error(err instanceof ApiError ? err.message : "Failed to create package");
   } finally {
@@ -96,7 +97,7 @@ onMounted(load);
       </form>
     </Card>
 
-    <p v-if="error" class="text-sm text-destructive" role="alert">{{ error }}</p>
+    <Alert v-if="error" kind="error">{{ error }}</Alert>
     <p v-if="loading" class="text-muted-foreground">Loading...</p>
 
     <div v-else-if="packages.length === 0" class="text-center text-muted-foreground py-12">

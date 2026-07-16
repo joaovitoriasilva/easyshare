@@ -6,8 +6,9 @@ import { publicApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { PublicShare } from "@/api/types";
 import { formatBytes } from "@/lib/format";
-import { useToastStore } from "@/stores/toast";
+import { useToasts } from "@/composables/useToasts";
 import {
+  Alert,
   Button,
   Card,
   CardContent,
@@ -21,7 +22,7 @@ import {
 
 const route = useRoute();
 const token = String(route.params.token);
-const toast = useToastStore();
+const toast = useToasts();
 
 const share = ref<PublicShare | null>(null);
 const loading = ref(true);
@@ -138,7 +139,7 @@ onMounted(load);
                 <Label for="email">Email</Label>
                 <Input id="email" v-model="email" type="email" placeholder="you@example.com" />
               </div>
-              <p v-if="error" class="text-sm text-destructive" role="alert">{{ error }}</p>
+              <Alert v-if="error" kind="error">{{ error }}</Alert>
               <Button type="submit">Unlock</Button>
             </form>
           </div>
