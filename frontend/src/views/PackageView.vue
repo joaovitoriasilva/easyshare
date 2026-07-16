@@ -6,8 +6,10 @@ import { packagesApi, sharesApi } from "@/api";
 import { ApiError, getToken } from "@/api/client";
 import type { Package, Share, Visibility } from "@/api/types";
 import { formatBytes } from "@/lib/format";
+import { downloadBlob } from "@/lib/download";
 import { invalidEmails } from "@/lib/validation";
 import { useToasts } from "@/composables/useToasts";
+import { useConfirm } from "@/composables/useConfirm";
 import {
   Alert,
   Button,
@@ -24,6 +26,7 @@ import {
 const route = useRoute();
 const router = useRouter();
 const toast = useToasts();
+const { confirm } = useConfirm();
 const packageId = Number(route.params.id);
 
 const pkg = ref<Package | null>(null);
@@ -141,6 +144,15 @@ async function onUpload(event: Event): Promise<void> {
 }
 
 async function removeFile(fileId: number): Promise<void> {
+  const confirmed = await confirm({
+    title: "Remove file",
+    message: "This file will be permanently deleted from the package.",
+    confirmText: "Remove",
+    destructive: true,
+  });
+  if (!confirmed) {
+    return;
+  }
   try {
     await packagesApi.removeFile(packageId, fileId);
     pkg.value = await packagesApi.get(packageId);
@@ -161,15 +173,8 @@ function downloadOwned(fileId: number, filename: string): void {
       }
       return response.blob();
     })
-    .then((blob) => triggerDownload(URL.createObjectURL(blob), filename))
+    .then((blob) => downloadBlob(blob, filename))
     .catch(() => toast.error("Failed to download file"));
-}
-
-function triggerDownload(url: string, filename: string): void {
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
 }
 
 async function enableSharing(): Promise<void> {
@@ -207,6 +212,15 @@ async function toggleEnabled(): Promise<void> {
 }
 
 async function disableSharing(): Promise<void> {
+  const confirmed = await confirm({
+    title: "Disable sharing",
+    message: "The share link will stop working for everyone who has it.",
+    confirmText: "Disable",
+    destructive: true,
+  });
+  if (!confirmed) {
+    return;
+  }
   try {
     await sharesApi.disable(packageId);
     share.value = null;
@@ -217,6 +231,15 @@ async function disableSharing(): Promise<void> {
 }
 
 async function deletePackage(): Promise<void> {
+  const confirmed = await confirm({
+    title: "Delete package",
+    message: `"${pkg.value?.name ?? "This package"}" and all its files will be permanently deleted.`,
+    confirmText: "Delete",
+    destructive: true,
+  });
+  if (!confirmed) {
+    return;
+  }
   try {
     await packagesApi.remove(packageId);
     toast.success("Package deleted");

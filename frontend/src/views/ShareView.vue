@@ -6,6 +6,7 @@ import { publicApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { PublicShare } from "@/api/types";
 import { formatBytes } from "@/lib/format";
+import { downloadUrl } from "@/lib/download";
 import { isValidEmail } from "@/lib/validation";
 import { useToasts } from "@/composables/useToasts";
 import {
@@ -87,24 +88,17 @@ function toggleAll(): void {
 }
 
 function downloadFile(id: number, filename: string): void {
-  triggerDownload(publicApi.fileUrl(token, id, downloadToken.value), filename);
+  downloadUrl(publicApi.fileUrl(token, id, downloadToken.value), filename);
   toast.success("Download started");
 }
 
 function downloadSelected(): void {
   const ids = hasSelection.value ? Array.from(selected.value) : [];
-  triggerDownload(
+  downloadUrl(
     publicApi.downloadUrl(token, ids, downloadToken.value),
     `${share.value?.package_name ?? "package"}.zip`,
   );
   toast.info("Preparing your download\u2026");
-}
-
-function triggerDownload(url: string, filename: string): void {
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
 }
 
 onMounted(load);

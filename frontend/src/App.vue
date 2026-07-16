@@ -2,7 +2,7 @@
 import { RouterLink, RouterView, useRouter } from "vue-router";
 import { Package2, LogOut } from "lucide-vue-next";
 import { useAuthStore } from "@/stores/auth";
-import { Button, Toaster } from "@/components/ui";
+import { Button, Toaster, ConfirmDialog } from "@/components/ui";
 import ThemeToggle from "@/components/ThemeToggle.vue";
 
 const auth = useAuthStore();
@@ -57,5 +57,6 @@ function logout(): void {
       <RouterView />
     </main>
     <Toaster />
+    <ConfirmDialog />
   </div>
 </template>

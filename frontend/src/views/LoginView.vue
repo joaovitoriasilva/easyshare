@@ -3,6 +3,7 @@ import { ref } from "vue";
 import { useRoute, useRouter, RouterLink } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { ApiError } from "@/api/client";
+import { getSafeRedirect } from "@/lib/redirect";
 import { useToasts } from "@/composables/useToasts";
 import {
   Alert,
@@ -33,8 +34,7 @@ async function submit(): Promise<void> {
   try {
     await auth.login(identifier.value, password.value);
     toast.success("Signed in");
-    const redirect = (route.query.redirect as string) || "/dashboard";
-    router.push(redirect);
+    router.push(getSafeRedirect(route.query.redirect));
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Login failed";
   } finally {
