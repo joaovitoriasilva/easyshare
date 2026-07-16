@@ -6,6 +6,7 @@ import { packagesApi, sharesApi } from "@/api";
 import { ApiError, getToken } from "@/api/client";
 import type { Package, Share, Visibility } from "@/api/types";
 import { formatBytes } from "@/lib/format";
+import { invalidEmails } from "@/lib/validation";
 import { useToasts } from "@/composables/useToasts";
 import {
   Alert,
@@ -17,6 +18,7 @@ import {
   CardTitle,
   Input,
   Label,
+  Tooltip,
 } from "@/components/ui";
 
 const route = useRoute();
@@ -72,6 +74,13 @@ function parseEmails(): string[] {
     .map((email) => email.trim())
     .filter(Boolean);
 }
+
+const emailIssues = computed(() => invalidEmails(emailsText.value));
+const restrictedEmailsOk = computed(
+  () =>
+    visibility.value !== "restricted" ||
+    (parseEmails().length > 0 && emailIssues.value.length === 0),
+);
 
 function startEdit(): void {
   if (!pkg.value) {
@@ -354,18 +363,23 @@ onMounted(load);
 
           <div v-if="visibility === 'restricted'" class="space-y-2">
             <Label for="emails">Allowed emails</Label>
-            <Input
-              id="emails"
-              v-model="emailsText"
-              placeholder="alice@example.com, bob@example.com"
-            />
+            <Tooltip
+              :content="'Invalid email(s): ' + emailIssues.join(', ')"
+              :open="emailIssues.length > 0"
+            >
+              <Input
+                id="emails"
+                v-model="emailsText"
+                placeholder="alice@example.com, bob@example.com"
+              />
+            </Tooltip>
             <p class="text-xs text-muted-foreground">
               Separate multiple emails with commas.
             </p>
           </div>
 
           <div v-if="!share" class="flex">
-            <Button @click="enableSharing">Enable sharing</Button>
+            <Button :disabled="!restrictedEmailsOk" @click="enableSharing">Enable sharing</Button>
           </div>
 
           <div v-else class="space-y-4">
@@ -382,7 +396,7 @@ onMounted(load);
               </p>
             </div>
             <div class="flex flex-wrap gap-2">
-              <Button variant="secondary" @click="updateSharing">Save changes</Button>
+              <Button variant="secondary" :disabled="!restrictedEmailsOk" @click="updateSharing">Save changes</Button>
               <Button variant="outline" @click="toggleEnabled">
                 {{ share.is_enabled ? "Pause" : "Resume" }}
               </Button>

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { useRouter, RouterLink } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { ApiError } from "@/api/client";
 import { useToasts } from "@/composables/useToasts";
+import { isValidEmail } from "@/lib/validation";
 import {
   Alert,
   Button,
@@ -15,6 +16,7 @@ import {
   CardTitle,
   Input,
   Label,
+  Tooltip,
 } from "@/components/ui";
 
 const auth = useAuthStore();
@@ -26,6 +28,9 @@ const username = ref("");
 const password = ref("");
 const error = ref<string | null>(null);
 const loading = ref(false);
+
+const emailValid = computed(() => isValidEmail(email.value));
+const showEmailError = computed(() => email.value.length > 0 && !emailValid.value);
 
 async function submit(): Promise<void> {
   error.value = null;
@@ -53,7 +58,9 @@ async function submit(): Promise<void> {
         <CardContent class="space-y-4">
           <div class="space-y-2">
             <Label for="email">Email</Label>
-            <Input id="email" v-model="email" type="email" placeholder="you@example.com" />
+            <Tooltip content="Enter a valid email address" :open="showEmailError">
+              <Input id="email" v-model="email" type="email" placeholder="you@example.com" />
+            </Tooltip>
           </div>
           <div class="space-y-2">
             <Label for="username">Username</Label>
@@ -67,7 +74,7 @@ async function submit(): Promise<void> {
           <Alert v-if="error" kind="error">{{ error }}</Alert>
         </CardContent>
         <CardFooter class="flex flex-col gap-3">
-          <Button type="submit" class="w-full" :disabled="loading">
+          <Button type="submit" class="w-full" :disabled="loading || !emailValid">
             {{ loading ? "Creating..." : "Create account" }}
           </Button>
           <p class="text-sm text-muted-foreground">

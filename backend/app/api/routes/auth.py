@@ -56,7 +56,13 @@ def register(request: Request, payload: UserCreate, db: DbSession) -> User:
     db.add(user)
     db.commit()
     db.refresh(user)
-    record_event(db, "user.register", request=request, actor=f"user:{user.id}")
+    record_event(
+        db,
+        "user.register",
+        request=request,
+        actor=f"user:{user.id}",
+        detail={"is_admin": user.is_admin},
+    )
     return user
 
 

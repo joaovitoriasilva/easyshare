@@ -10,3 +10,4 @@ export { default as CardFooter } from "./CardFooter.vue";
 export { default as Checkbox } from "./Checkbox.vue";
 export { default as Alert } from "./Alert.vue";
 export { default as Toaster } from "./Toaster.vue";
+export { default as Tooltip } from "./Tooltip.vue";

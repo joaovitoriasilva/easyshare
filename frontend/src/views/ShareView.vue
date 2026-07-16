@@ -6,6 +6,7 @@ import { publicApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { PublicShare } from "@/api/types";
 import { formatBytes } from "@/lib/format";
+import { isValidEmail } from "@/lib/validation";
 import { useToasts } from "@/composables/useToasts";
 import {
   Alert,
@@ -18,6 +19,7 @@ import {
   Checkbox,
   Input,
   Label,
+  Tooltip,
 } from "@/components/ui";
 
 const route = useRoute();
@@ -30,6 +32,9 @@ const error = ref<string | null>(null);
 const email = ref("");
 const unlocked = ref(false);
 const selected = ref<Set<number>>(new Set());
+
+const emailValid = computed(() => isValidEmail(email.value));
+const showEmailError = computed(() => email.value.length > 0 && !emailValid.value);
 
 const files = computed(() => share.value?.files ?? []);
 const allSelected = computed(
@@ -137,10 +142,12 @@ onMounted(load);
             <form class="space-y-3" @submit.prevent="unlock">
               <div class="space-y-2">
                 <Label for="email">Email</Label>
-                <Input id="email" v-model="email" type="email" placeholder="you@example.com" />
+                <Tooltip content="Enter a valid email address" :open="showEmailError">
+                  <Input id="email" v-model="email" type="email" placeholder="you@example.com" />
+                </Tooltip>
               </div>
               <Alert v-if="error" kind="error">{{ error }}</Alert>
-              <Button type="submit">Unlock</Button>
+              <Button type="submit" :disabled="!emailValid">Unlock</Button>
             </form>
           </div>
 

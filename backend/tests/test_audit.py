@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -53,6 +54,23 @@ def test_register_and_login_are_audited(
     actions = _actions(db_sessionmaker)
     assert "user.register" in actions
     assert "login.success" in actions
+
+
+def test_register_event_records_admin_flag(
+    client: TestClient, db_sessionmaker: sessionmaker
+) -> None:
+    register_and_login(client, "first", "first@example.com")
+    register_and_login(client, "second", "second@example.com")
+    with db_sessionmaker() as db:
+        events = list(
+            db.scalars(
+                select(AuditEvent)
+                .where(AuditEvent.action == "user.register")
+                .order_by(AuditEvent.id)
+            )
+        )
+    assert json.loads(events[0].detail) == {"is_admin": True}
+    assert json.loads(events[1].detail) == {"is_admin": False}
 
 
 def test_failed_login_is_audited(

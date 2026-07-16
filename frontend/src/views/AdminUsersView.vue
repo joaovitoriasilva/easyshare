@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { adminApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { AdminUserUpdate, User } from "@/api/types";
 import { useAuthStore } from "@/stores/auth";
 import { useToasts } from "@/composables/useToasts";
-import { Button, Input } from "@/components/ui";
+import { isValidEmail } from "@/lib/validation";
+import { Button, Input, Tooltip } from "@/components/ui";
 
 const auth = useAuthStore();
 const toast = useToasts();
@@ -19,6 +20,11 @@ const limit = 50;
 const editingId = ref<number | null>(null);
 const editUsername = ref("");
 const editEmail = ref("");
+
+const editEmailValid = computed(() => isValidEmail(editEmail.value));
+const showEditEmailError = computed(
+  () => editEmail.value.length > 0 && !editEmailValid.value,
+);
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -126,12 +132,13 @@ onMounted(load);
                 </span>
               </td>
               <td class="p-3">
-                <Input
+                <Tooltip
                   v-if="editingId === user.id"
-                  v-model="editEmail"
-                  type="email"
-                  class="h-8"
-                />
+                  content="Enter a valid email address"
+                  :open="showEditEmailError"
+                >
+                  <Input v-model="editEmail" type="email" class="h-8" />
+                </Tooltip>
                 <span v-else class="text-muted-foreground">{{ user.email }}</span>
               </td>
               <td class="p-3">
@@ -147,7 +154,7 @@ onMounted(load);
               <td class="p-3">
                 <div class="flex justify-end gap-2">
                   <template v-if="editingId === user.id">
-                    <Button size="sm" @click="saveEdit(user)">Save</Button>
+                    <Button size="sm" :disabled="!editEmailValid" @click="saveEdit(user)">Save</Button>
                     <Button variant="ghost" size="sm" @click="cancelEdit">Cancel</Button>
                   </template>
                   <template v-else>
