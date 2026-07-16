@@ -62,7 +62,7 @@ async function submit(): Promise<void> {
           <Button type="submit" class="w-full" :disabled="loading">
             {{ loading ? "Signing in..." : "Sign in" }}
           </Button>
-          <p class="text-sm text-muted-foreground">
+          <p v-if="auth.allowRegistration" class="text-sm text-muted-foreground">
             No account?
             <RouterLink to="/register" class="text-primary hover:underline">
               Create one

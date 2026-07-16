@@ -7,6 +7,7 @@ import type { User } from "@/api/types";
 export const useAuthStore = defineStore("auth", () => {
   const user = ref<User | null>(null);
   const initialized = ref(false);
+  const allowRegistration = ref(true);
 
   async function init(): Promise<void> {
     if (initialized.value) {
@@ -19,6 +20,11 @@ export const useAuthStore = defineStore("auth", () => {
         setToken(null);
         user.value = null;
       }
+    }
+    try {
+      allowRegistration.value = (await authApi.config()).allow_registration;
+    } catch {
+      allowRegistration.value = true;
     }
     initialized.value = true;
   }
@@ -41,5 +47,5 @@ export const useAuthStore = defineStore("auth", () => {
     user.value = null;
   }
 
-  return { user, initialized, init, login, register, logout };
+  return { user, initialized, allowRegistration, init, login, register, logout };
 });

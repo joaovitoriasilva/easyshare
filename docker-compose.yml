@@ -6,6 +6,7 @@ services:
       EASYSHARE_DATABASE_URL: sqlite:////data/easyshare.db
       EASYSHARE_STORAGE_DIR: /data/storage
       EASYSHARE_CORS_ORIGINS: http://localhost:8090
+      EASYSHARE_ALLOW_REGISTRATION: "false"
     volumes:
       - backend-data:/data
     ports:

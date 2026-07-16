@@ -37,6 +37,10 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class AuthConfig(BaseModel):
+    allow_registration: bool
+
+
 # --- Packages --------------------------------------------------------------
 
 

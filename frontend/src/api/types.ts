@@ -1,5 +1,9 @@
 export type Visibility = "public" | "restricted";
 
+export interface AuthConfig {
+  allow_registration: boolean;
+}
+
 export interface User {
   id: number;
   email: string;

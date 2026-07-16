@@ -9,16 +9,28 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import or_, select
 
 from app.api.deps import CurrentUser, DbSession
+from app.core.config import settings
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.models import User
-from app.schemas.schemas import Token, UserCreate, UserRead
+from app.schemas.schemas import AuthConfig, Token, UserCreate, UserRead
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.get("/config", response_model=AuthConfig)
+def auth_config() -> AuthConfig:
+    """Public auth-related feature flags for the frontend."""
+    return AuthConfig(allow_registration=settings.allow_registration)
 
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 def register(payload: UserCreate, db: DbSession) -> User:
     """Register a new user account."""
+    if not settings.allow_registration:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Registration is currently disabled",
+        )
     existing = db.scalar(
         select(User).where(
             or_(User.email == payload.email, User.username == payload.username)

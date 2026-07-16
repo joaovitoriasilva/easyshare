@@ -1,7 +1,11 @@
 import { api, setToken } from "./client";
-import type { Package, PublicShare, Share, User, Visibility } from "./types";
+import type { AuthConfig, Package, PublicShare, Share, User, Visibility } from "./types";
 
 export const authApi = {
+  async config(): Promise<AuthConfig> {
+    return api.request<AuthConfig>("/auth/config", { auth: false });
+  },
+
   async register(email: string, username: string, password: string): Promise<User> {
     return api.request<User>("/auth/register", {
       method: "POST",

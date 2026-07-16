@@ -52,6 +52,9 @@ router.beforeEach(async (to) => {
   if (to.meta.requiresAuth && !auth.user) {
     return { name: "login", query: { redirect: to.fullPath } };
   }
+  if (to.name === "register" && !auth.allowRegistration) {
+    return { name: "login" };
+  }
   if (to.meta.guestOnly && auth.user) {
     return { name: "dashboard" };
   }

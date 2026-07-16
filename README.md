@@ -94,6 +94,7 @@ running with Docker.
 | `EASYSHARE_DEBUG`                        | `false`                              | Enables debug mode when set to `true`.                                      |
 | `EASYSHARE_ACCESS_TOKEN_EXPIRE_MINUTES`  | `1440`                               | Lifetime of JWT access tokens, in minutes.                                   |
 | `EASYSHARE_ALGORITHM`                    | `HS256`                              | JWT signing algorithm.                                                      |
+| `EASYSHARE_ALLOW_REGISTRATION`           | `true`                               | Set to `false` to disable new user sign-ups (`POST /api/auth/register`); existing users can still log in. |
 | `EASYSHARE_DATABASE_URL`                 | `sqlite:///./easyshare.db`           | SQLAlchemy database URL. Use a `postgresql+psycopg://...` URL in production. |
 | `EASYSHARE_STORAGE_DIR`                  | `./storage`                          | Directory (or mounted volume) where uploaded files are stored.              |
 | `EASYSHARE_MAX_FILE_SIZE`                | `104857600` (100 MB)                 | Maximum size, in bytes, allowed for a single uploaded file.                  |

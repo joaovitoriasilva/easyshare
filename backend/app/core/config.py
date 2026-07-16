@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     )
     access_token_expire_minutes: int = 60 * 24
     algorithm: str = "HS256"
+    allow_registration: bool = True
 
     # Database
     database_url: str = "sqlite:///./easyshare.db"
