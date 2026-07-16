@@ -16,7 +16,8 @@ from app.schemas.schemas import (
     PackageRead,
     PackageUpdate,
 )
-from app.services.storage import storage
+from app.services.storage import FileTooLargeError, storage
+from app.services.validation import sanitize_upload_filename
 
 router = APIRouter(prefix="/packages", tags=["packages"])
 
@@ -116,18 +117,20 @@ def upload_file(
             detail="Maximum number of files per package reached",
         )
 
+    safe_filename = sanitize_upload_filename(file.filename)
+
     storage_key = storage.generate_key()
-    size = storage.save(storage_key, file.file)
-    if size > settings.max_file_size:
-        storage.delete(storage_key)
+    try:
+        size = storage.save(storage_key, file.file, max_bytes=settings.max_file_size)
+    except FileTooLargeError as exc:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="File exceeds the maximum allowed size",
-        )
+        ) from exc
 
     record = PackageFile(
         package_id=package.id,
-        filename=file.filename or "unnamed",
+        filename=safe_filename,
         content_type=file.content_type or "application/octet-stream",
         size=size,
         storage_key=storage_key,

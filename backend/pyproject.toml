@@ -2,7 +2,7 @@
 name = "easyshare-backend"
 version = "0.1.0"
 description = "EasyShare backend - secure file/package sharing API"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.111,<1.0",
     "uvicorn[standard]>=0.30,<1.0",
@@ -15,6 +15,7 @@ dependencies = [
     "bcrypt>=4.0,<4.1",
     "python-multipart>=0.0.9,<1.0",
     "email-validator>=2.1,<3.0",
+    "safeuploads[fastapi]>=1.0,<2.0",
 ]
 
 [project.optional-dependencies]
@@ -38,7 +39,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "S"]
@@ -52,7 +53,7 @@ ignore = ["S101", "B008", "S105", "S107", "UP042"]
 "tests/*" = ["S101", "S105", "S106"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.13"
 plugins = ["pydantic.mypy"]
 warn_unused_configs = true
 disallow_untyped_defs = true

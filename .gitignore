@@ -16,3 +16,10 @@ docker-compose.yml
 
 # Logs
 *.log
+
+# Python cache
+__pycache__/
+.venv/
+
+# mypycache
+.mypy_cache/

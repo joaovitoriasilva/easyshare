@@ -9,6 +9,16 @@ from pathlib import Path
 from app.core.config import settings
 
 
+class FileTooLargeError(Exception):
+    """Raised when an upload exceeds the maximum allowed size mid-stream."""
+
+    def __init__(self, max_bytes: int) -> None:
+        super().__init__(
+            f"File exceeds the maximum allowed size of {max_bytes} bytes"
+        )
+        self.max_bytes = max_bytes
+
+
 class StorageService:
     """Stores file contents on the local filesystem under a base directory."""
 
@@ -28,17 +38,33 @@ class StorageService:
         """Return a unique, opaque storage key."""
         return secrets.token_hex(16)
 
-    def save(self, storage_key: str, source: object) -> int:
-        """Persist a file-like ``source`` and return the number of bytes written."""
+    def save(
+        self, storage_key: str, source: object, max_bytes: int | None = None
+    ) -> int:
+        """Persist a file-like ``source`` and return the number of bytes written.
+
+        When ``max_bytes`` is provided, the write is aborted as soon as the
+        limit is exceeded and the partial file is removed, so oversized uploads
+        are never fully written to disk.
+
+        Raises:
+            FileTooLargeError: If the stream exceeds ``max_bytes``.
+        """
         target = self._resolve(storage_key)
         size = 0
-        with target.open("wb") as buffer:
-            while True:
-                chunk = source.read(1024 * 1024)  # type: ignore[attr-defined]
-                if not chunk:
-                    break
-                size += len(chunk)
-                buffer.write(chunk)
+        try:
+            with target.open("wb") as buffer:
+                while True:
+                    chunk = source.read(1024 * 1024)  # type: ignore[attr-defined]
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    if max_bytes is not None and size > max_bytes:
+                        raise FileTooLargeError(max_bytes)
+                    buffer.write(chunk)
+        except FileTooLargeError:
+            target.unlink(missing_ok=True)
+            raise
         return size
 
     def open_stream(self, storage_key: str) -> object:

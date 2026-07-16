@@ -18,7 +18,7 @@ from app.services import storage as storage_module
 
 
 @pytest.fixture
-def client(tmp_path: Path) -> Generator[TestClient, None, None]:
+def client(tmp_path: Path) -> Generator[TestClient]:
     """Yield a TestClient backed by an isolated in-memory DB and temp storage."""
     engine = create_engine(
         "sqlite://",
