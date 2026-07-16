@@ -1,11 +1,13 @@
 import { api, setToken } from "./client";
 import type {
+  AdminUserUpdate,
   AuditPage,
   AuthConfig,
   Package,
   PublicShare,
   Share,
   User,
+  UserPage,
   Visibility,
 } from "./types";
 
@@ -182,5 +184,17 @@ export const auditApi = {
   },
   all(params: AuditQuery = {}): Promise<AuditPage> {
     return api.request<AuditPage>(`/audit${auditQuery(params)}`);
+  },
+};
+
+export const adminApi = {
+  listUsers(params: { limit?: number; offset?: number } = {}): Promise<UserPage> {
+    const q = new URLSearchParams();
+    q.set("limit", String(params.limit ?? 50));
+    q.set("offset", String(params.offset ?? 0));
+    return api.request<UserPage>(`/admin/users?${q.toString()}`);
+  },
+  updateUser(id: number, patch: AdminUserUpdate): Promise<User> {
+    return api.request<User>(`/admin/users/${id}`, { method: "PATCH", body: patch });
   },
 };

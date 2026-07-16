@@ -45,6 +45,12 @@ const router = createRouter({
       meta: { requiresAuth: true, requiresAdmin: true },
     },
     {
+      path: "/admin/users",
+      name: "admin-users",
+      component: () => import("@/views/AdminUsersView.vue"),
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
       path: "/s/:token",
       name: "share",
       component: () => import("@/views/ShareView.vue"),

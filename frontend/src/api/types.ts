@@ -75,3 +75,17 @@ export interface AuditPage {
   limit: number;
   offset: number;
 }
+
+export interface UserPage {
+  items: User[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface AdminUserUpdate {
+  username?: string;
+  email?: string;
+  is_active?: boolean;
+  is_admin?: boolean;
+}

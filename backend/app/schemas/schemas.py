@@ -30,6 +30,22 @@ class UserRead(BaseModel):
     created_at: datetime
 
 
+class UserAdminUpdate(BaseModel):
+    username: str | None = Field(
+        default=None, min_length=3, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$"
+    )
+    email: EmailStr | None = None
+    is_active: bool | None = None
+    is_admin: bool | None = None
+
+
+class UserPage(BaseModel):
+    items: list[UserRead]
+    total: int
+    limit: int
+    offset: int
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"

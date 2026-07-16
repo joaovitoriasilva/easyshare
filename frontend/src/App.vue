@@ -32,10 +32,17 @@ function logout(): void {
           </RouterLink>
           <RouterLink
             v-if="auth.user?.is_admin"
+            :to="{ name: 'admin-users' }"
+            class="text-sm text-muted-foreground hover:text-foreground"
+          >
+            Users
+          </RouterLink>
+          <RouterLink
+            v-if="auth.user?.is_admin"
             :to="{ name: 'admin-audit' }"
             class="text-sm text-muted-foreground hover:text-foreground"
           >
-            Admin
+            Audit
           </RouterLink>
           <span v-if="auth.user" class="text-sm text-muted-foreground">{{ auth.user.username }}</span>
           <ThemeToggle />

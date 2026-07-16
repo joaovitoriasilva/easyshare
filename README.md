@@ -115,6 +115,17 @@ reachable from outside). If you deliberately publish the backend port, set
 commented-out `Strict-Transport-Security` (HSTS) header once the site is served
 exclusively over HTTPS.
 
+### Administrators
+
+The **first account to register becomes an administrator**. Admins get a
+**Users** page (`/admin/users`) to manage accounts — edit profiles, activate or
+deactivate users, and grant or revoke admin rights — plus an **Audit** page
+(`/admin/audit`) with the full security log. So nobody else can claim the first
+account on a public instance, register immediately after deploying, or deploy
+with `EASYSHARE_ALLOW_REGISTRATION=false` and enable it only long enough to
+create your account. Admins cannot revoke their own rights or deactivate
+themselves, so an instance always keeps at least one administrator.
+
 ## Environment variables
 
 The backend is configured entirely through environment variables, all prefixed
@@ -144,7 +155,6 @@ running with Docker.
 | `EASYSHARE_FORWARDED_ALLOW_IPS`          | `127.0.0.1`                          | Comma-separated reverse-proxy IPs whose `X-Forwarded-For` uvicorn trusts. Read by the Docker entrypoint, so it must be a real environment variable (e.g. set in Compose), not only in `backend/.env`. Use `*` only when the backend port is not publicly reachable. |
 | `EASYSHARE_LOG_LEVEL`                    | `INFO`                               | Root log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`).                       |
 | `EASYSHARE_LOG_FORMAT`                   | `console`                            | Log output format: `console` (human-readable) or `json` (structured, for shippers). |
-| `EASYSHARE_ADMIN_EMAILS`                 | _(empty)_                            | Comma-separated emails granted admin rights at registration; admins can read the full audit log (`GET /api/audit`, `/admin/audit`). Existing users can also be promoted in the database. |
 
 When running locally, edit `backend/.env` directly (it is loaded automatically
 by the backend on startup) or export the variables in your shell before

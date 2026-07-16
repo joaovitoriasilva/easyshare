@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { auditApi, packagesApi, publicApi } from "@/api";
+import { adminApi, auditApi, packagesApi, publicApi } from "@/api";
 import { ApiError, getToken, setToken } from "@/api/client";
 
 afterEach(() => {
@@ -93,6 +93,40 @@ describe("auditApi", () => {
     const url = fetchMock.mock.calls[0][0] as string;
     expect(url).toContain("/api/audit?");
     expect(url).toContain("actor=user%3A1");
+  });
+});
+
+describe("adminApi", () => {
+  const jsonResponse = (data: unknown): Response =>
+    new Response(JSON.stringify(data), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  it("lists users with pagination", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ items: [], total: 0, limit: 50, offset: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await adminApi.listUsers({ offset: 50 });
+
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain("/api/admin/users?");
+    expect(url).toContain("offset=50");
+  });
+
+  it("patches a user with PATCH", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ id: 3, is_admin: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await adminApi.updateUser(3, { is_admin: true });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/admin/users/3");
+    expect((init as RequestInit).method).toBe("PATCH");
   });
 });
 

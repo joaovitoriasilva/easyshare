@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 
 from app.api.deps import CurrentUser, DbSession
 from app.core.audit import record_event
@@ -44,11 +44,14 @@ def register(request: Request, payload: UserCreate, db: DbSession) -> User:
             status_code=status.HTTP_409_CONFLICT,
             detail="A user with that email or username already exists",
         )
+    # The very first account created on a fresh instance becomes an admin, so an
+    # administrator always exists without any out-of-band configuration.
+    is_first_user = db.scalar(select(func.count()).select_from(User)) == 0
     user = User(
         email=payload.email,
         username=payload.username,
         hashed_password=hash_password(payload.password),
-        is_admin=settings.is_admin_email(str(payload.email)),
+        is_admin=is_first_user,
     )
     db.add(user)
     db.commit()

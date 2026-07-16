@@ -4,13 +4,8 @@ from __future__ import annotations
 
 import io
 
-import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
-from sqlalchemy.orm import sessionmaker
 
-from app.core.config import settings
-from app.models.models import User
 from tests.conftest import register_and_login
 
 
@@ -70,59 +65,18 @@ def test_my_activity_action_filter(client: TestClient) -> None:
     assert resp["items"][0]["detail"]["filename"] == "a.txt"
 
 
-def test_admin_endpoint_requires_admin(
-    client: TestClient, db_sessionmaker: sessionmaker
-) -> None:
-    alice = register_and_login(client, "alice", "alice@example.com")
-    _share_with_download(client, alice)
+def test_admin_endpoint_requires_admin(client: TestClient) -> None:
+    # The first registered user is an admin; the second is not.
+    admin = register_and_login(client, "admin", "admin@example.com")
+    _share_with_download(client, admin)
+    bob = register_and_login(client, "bob", "bob@example.com")
 
     # A normal user cannot read the global log.
-    assert client.get("/api/audit", headers=alice).status_code == 403
+    assert client.get("/api/audit", headers=bob).status_code == 403
 
-    # Promote alice in the database.
-    with db_sessionmaker() as db:
-        user = db.scalar(select(User).where(User.username == "alice"))
-        assert user is not None
-        user.is_admin = True
-        db.commit()
-
-    resp = client.get("/api/audit", headers=alice)
+    resp = client.get("/api/audit", headers=admin)
     assert resp.status_code == 200
     actions = {e["action"] for e in resp.json()["items"]}
     # The global log includes account-level events that /mine excludes.
     assert "user.register" in actions
     assert "login.success" in actions
-
-
-def test_me_reports_admin_flag(
-    client: TestClient, db_sessionmaker: sessionmaker
-) -> None:
-    headers = register_and_login(client, "alice", "alice@example.com")
-    assert client.get("/api/auth/me", headers=headers).json()["is_admin"] is False
-
-    with db_sessionmaker() as db:
-        user = db.scalar(select(User).where(User.username == "alice"))
-        assert user is not None
-        user.is_admin = True
-        db.commit()
-
-    assert client.get("/api/auth/me", headers=headers).json()["is_admin"] is True
-
-
-def test_admin_email_promotes_on_register(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(settings, "admin_emails", ["boss@example.com"])
-    client.post(
-        "/api/auth/register",
-        json={
-            "email": "boss@example.com",
-            "username": "boss",
-            "password": "supersecret1",
-        },
-    )
-    login = client.post(
-        "/api/auth/login", data={"username": "boss", "password": "supersecret1"}
-    )
-    headers = {"Authorization": "Bearer " + login.json()["access_token"]}
-    assert client.get("/api/auth/me", headers=headers).json()["is_admin"] is True

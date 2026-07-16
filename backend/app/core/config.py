@@ -62,25 +62,12 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: str = "console"  # "console" (dev) or "json" (production)
 
-    # Admin: emails granted admin rights when they register.
-    admin_emails: Annotated[list[str], NoDecode] = []
-
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_cors(cls, value: object) -> object:
         """Allow a comma-separated string for CORS origins."""
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
-        return value
-
-    @field_validator("admin_emails", mode="before")
-    @classmethod
-    def _split_admin_emails(cls, value: object) -> object:
-        """Allow a comma-separated string; normalise to lowercase."""
-        if isinstance(value, str):
-            return [e.strip().lower() for e in value.split(",") if e.strip()]
-        if isinstance(value, list):
-            return [str(e).strip().lower() for e in value]
         return value
 
     @model_validator(mode="after")
@@ -105,10 +92,6 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment.lower() == "production"
-
-    def is_admin_email(self, email: str) -> bool:
-        """Whether ``email`` should be granted administrator rights."""
-        return email.strip().lower() in self.admin_emails
 
 
 @lru_cache
