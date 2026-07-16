@@ -7,11 +7,21 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+from pwdlib import PasswordHash
+from pwdlib.hashers.argon2 import Argon2Hasher
 
 from app.core.config import settings
 
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Argon2id for password hashing: unlike bcrypt it has no 72-byte input limit and
+# is memory-hard. pwdlib also replaces passlib, which is unmaintained and stops
+# working on Python 3.13+ (the minimum this project targets).
+_password_hash = PasswordHash((Argon2Hasher(),))
+
+# A throwaway hash computed once at import so the "user not found" login branch
+# can perform the same Argon2 work as a real verify. Without it that branch
+# returns far faster than a wrong-password verify, letting an attacker enumerate
+# valid accounts by timing the response.
+_DUMMY_HASH = _password_hash.hash(secrets.token_urlsafe(32))
 
 # Marks a token as a restricted-share download credential rather than a user
 # access token, so the two can never be used interchangeably.
@@ -19,13 +29,24 @@ _SHARE_ACCESS_SCOPE = "share-access"
 
 
 def hash_password(password: str) -> str:
-    """Hash a plaintext password using bcrypt."""
-    return _pwd_context.hash(password)
+    """Hash a plaintext password using Argon2id."""
+    return _password_hash.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a plaintext password against a stored hash."""
-    return _pwd_context.verify(plain_password, hashed_password)
+    """Verify a plaintext password against a stored Argon2 hash."""
+    return _password_hash.verify(plain_password, hashed_password)
+
+
+def dummy_verify() -> None:
+    """Run a throwaway verify to equalise login timing for unknown users.
+
+    Called on the "user not found" branch of login so its latency matches the
+    "found, wrong password" branch, closing a username-enumeration side channel.
+    Always performs a full Argon2 verify and discards the (always ``False``)
+    result.
+    """
+    _password_hash.verify(secrets.token_urlsafe(32), _DUMMY_HASH)
 
 
 def create_access_token(

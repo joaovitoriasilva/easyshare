@@ -12,7 +12,12 @@ from app.api.deps import CurrentUser, DbSession
 from app.core.audit import record_event
 from app.core.config import settings
 from app.core.rate_limit import SENSITIVE, limiter
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.security import (
+    create_access_token,
+    dummy_verify,
+    hash_password,
+    verify_password,
+)
 from app.models.models import User
 from app.schemas.schemas import AuthConfig, Token, UserCreate, UserRead
 
@@ -81,6 +86,10 @@ def login(
         )
     )
     if user is None or not verify_password(form_data.password, user.hashed_password):
+        # Equalise timing for unknown usernames so accounts can't be enumerated
+        # by measuring how long a failed login takes.
+        if user is None:
+            dummy_verify()
         record_event(db, "login.failure", request=request, actor=identifier)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
