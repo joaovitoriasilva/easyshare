@@ -1,0 +1,36 @@
+# Version control / editor
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Backend
+backend/__pycache__/
+backend/**/__pycache__/
+backend/**/*.py[cod]
+backend/**/*.egg-info/
+backend/.mypy_cache/
+backend/.pytest_cache/
+backend/.ruff_cache/
+backend/.venv/
+backend/.env
+backend/*.db
+backend/*.sqlite3
+backend/storage/
+backend/tests/
+backend/README.md
+backend/Dockerfile
+backend/.dockerignore
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/README.md
+frontend/Dockerfile
+frontend/nginx.conf
+
+# Root
+.mypy_cache/
+README.md
+docker-compose*.yml

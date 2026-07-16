@@ -15,8 +15,9 @@ from app.api.deps import DbSession
 from app.api.routes import admin, audit, auth, packages, public, shares
 from app.core.config import settings
 from app.core.logging import configure_logging
-from app.core.middleware import RequestContextMiddleware
+from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
 from app.core.rate_limit import limiter, rate_limit_exceeded_handler
+from app.core.static import router as frontend_router
 
 configure_logging()
 
@@ -45,7 +46,8 @@ def handle_file_validation_error(
 # Middleware runs outermost-first (reverse registration order). RequestContext
 # is registered last so it wraps everything — every response gets a request id
 # and one access-log line — while CORS stays outside SlowAPI so 429 responses
-# still carry CORS headers.
+# still carry CORS headers. SecurityHeaders is registered first (innermost) so
+# it still stamps the SPA/static responses served by frontend_router below.
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -57,6 +59,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(RequestContextMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 api_prefix = "/api"
 app.include_router(auth.router, prefix=api_prefix)
@@ -84,3 +87,10 @@ def ready(db: DbSession) -> dict[str, str]:
             detail="Database unavailable",
         ) from exc
     return {"status": "ready"}
+
+
+# Single-image deployment: the built frontend SPA is served directly by this
+# app (see app/core/static.py). Registered last (after every API router)
+# because its catch-all "/{full_path:path}" route would otherwise shadow
+# every other route.
+app.include_router(frontend_router)

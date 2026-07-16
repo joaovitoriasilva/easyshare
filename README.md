@@ -45,6 +45,7 @@ link and download all files, or just the ones they select, as a zip archive.
 backend/    FastAPI application, models, migrations and tests
 frontend/   Vue 3 single-page application and tests
 .github/    CI workflows
+Dockerfile  Single image: builds the frontend, bundles it into the backend
 docker-compose.yml
 ```
 
@@ -77,7 +78,10 @@ Open http://localhost:5173.
 EASYSHARE_SECRET_KEY="$(openssl rand -hex 32)" docker compose up --build
 ```
 
-The UI is served at http://localhost:8080 and the API at http://localhost:8000.
+EasyShare ships as a **single image**: the FastAPI backend serves the built Vue
+SPA itself (no separate nginx/frontend container), available at
+http://localhost:8080 (`docker-compose.yml`, dev) (`docker-compose.example.yml`, production). The API lives alongside it under
+`/api` on the same origin/port.
 
 ## Production notes
 
@@ -95,24 +99,23 @@ EASYSHARE_SECRET_KEY="$(openssl rand -hex 32)" \
 
 ### Trusted proxy headers
 
-The backend runs behind the nginx proxy and reads the real client IP from the
-`X-Forwarded-For` header (so rate limiting and logs see the client, not the
-proxy). uvicorn only honours that header from the addresses listed in
-`EASYSHARE_FORWARDED_ALLOW_IPS` (default `127.0.0.1`), which the container
-entrypoint passes to `--forwarded-allow-ips`.
-
-Because a trusted header can be spoofed by anyone able to reach uvicorn
-directly, `docker-compose.example.yml` does **not** publish the backend port —
-the frontend container reaches it over the internal compose network — and sets
-`EASYSHARE_FORWARDED_ALLOW_IPS: "*"` (safe precisely because the port is not
-reachable from outside). If you deliberately publish the backend port, set
-`EASYSHARE_FORWARDED_ALLOW_IPS` to your proxy's address instead of `*`.
+The container is published directly (no bundled reverse proxy in front of it
+anymore). If you put your own reverse proxy (nginx, Traefik, Pangolin, ...) in
+front of it for TLS termination, uvicorn only honours its `X-Forwarded-For`
+header (so rate limiting and logs see the real client, not the proxy) from the
+addresses listed in `EASYSHARE_FORWARDED_ALLOW_IPS` (default `127.0.0.1`),
+which the container entrypoint passes to `--forwarded-allow-ips`. Set it to
+your reverse proxy's address; leave it at the default if the container is
+reachable directly, since trusting `X-Forwarded-For` from an untrusted peer
+lets it forge the client IP and bypass IP-based rate limiting.
 
 ### Security headers
 
-`frontend/nginx.conf` sets `X-Content-Type-Options`, `X-Frame-Options`,
-`Referrer-Policy` and a `Content-Security-Policy` on every response. Enable the
-commented-out `Strict-Transport-Security` (HSTS) header once the site is served
+`app/core/middleware.py::SecurityHeadersMiddleware` sets
+`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and a
+`Content-Security-Policy` on every response (this used to live in
+`frontend/nginx.conf` before the frontend and backend were merged into one
+image). Add `Strict-Transport-Security` (HSTS) there once the site is served
 exclusively over HTTPS.
 
 ### Administrators
@@ -170,9 +173,11 @@ EASYSHARE_DATABASE_URL="postgresql+psycopg://user:pass@host/db" \
 docker compose up --build
 ```
 
-The frontend has no build-time environment variables: in development it proxies
-`/api` requests to `http://localhost:8000` (see `frontend/vite.config.ts`), and
-in the Docker image `nginx.conf` proxies `/api` to the `backend` service.
+The frontend has no build-time environment variables. In development, `npm run
+dev` (Vite) proxies `/api` requests to `http://localhost:8000` (see
+`frontend/vite.config.ts`). In the Docker image the frontend is built into
+static files and served by the FastAPI backend itself, on the same origin as
+`/api`, so no proxying is needed there at all.
 
 ## Testing & quality
 

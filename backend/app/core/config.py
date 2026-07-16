@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     max_files_per_package: int = 50
     max_archive_size: int = 5 * 1024 * 1024 * 1024  # 5 GiB per zip download
 
+    # Frontend (single-image deployment: the built Vue SPA is baked into the
+    # backend image at this path and served by FastAPI itself; see
+    # app/core/static.py). Missing in local dev, where the SPA is instead
+    # served by `npm run dev` / Vite on its own port.
+    frontend_dir: Path = Path("/app/frontend/dist")
+
     # CORS
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
 
