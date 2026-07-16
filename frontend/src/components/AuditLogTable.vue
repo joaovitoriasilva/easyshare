@@ -44,7 +44,7 @@ function formatDetail(detail: Record<string, unknown> | null): string {
           <td class="p-3 text-muted-foreground">{{ formatDetail(event.detail) }}</td>
         </tr>
         <tr v-if="events.length === 0">
-          <td colspan="6" class="p-6 text-center text-muted-foreground">
+          <td colspan="6" class="p-4 text-center text-muted-foreground">
             No activity yet.
           </td>
         </tr>

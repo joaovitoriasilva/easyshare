@@ -212,7 +212,7 @@ onMounted(load);
               </td>
             </tr>
             <tr v-if="users.length === 0">
-              <td colspan="5" class="p-6 text-center text-muted-foreground">
+              <td colspan="5" class="p-4 text-center text-muted-foreground">
                 No users.
               </td>
             </tr>

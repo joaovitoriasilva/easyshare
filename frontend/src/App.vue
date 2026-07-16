@@ -12,6 +12,12 @@ const route = useRoute();
 
 const mobileOpen = ref(false);
 
+const startYear = 2023
+const yearRange = computed(() => {
+  const current = new Date().getFullYear()
+  return current === startYear ? `${startYear}` : `${startYear} - ${current}`
+})
+
 // Close the mobile menu whenever the route changes (e.g. browser back/forward).
 watch(() => route.fullPath, () => {
   mobileOpen.value = false;
@@ -25,7 +31,7 @@ function logout(): void {
 </script>
 
 <template>
-  <div class="min-h-screen bg-background">
+  <div class="flex min-h-screen flex-col bg-background">
     <header class="border-b bg-header">
       <div class="container flex h-16 items-center justify-between">
         <RouterLink
@@ -118,9 +124,18 @@ function logout(): void {
         </div>
       </nav>
     </header>
-    <main class="container py-8">
+    <main class="container flex-1 py-8">
       <RouterView />
     </main>
+    <footer class="border-t bg-header">
+      <div class="container flex flex-col items-center gap-1 py-6 text-sm text-muted-foreground sm:flex-row sm:justify-between">
+        <span class="flex items-center gap-2">
+          <Package2 class="h-4 w-4" />
+          EasyShare
+        </span>
+        <span>{{ yearRange }} • v0.1.0</span>
+      </div>
+    </footer>
     <Toaster />
     <ConfirmDialog />
   </div>
