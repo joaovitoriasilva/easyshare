@@ -39,14 +39,29 @@ def _serialize(share: Share) -> ShareRead:
 
 
 def _apply_emails(share: Share, emails: list[str]) -> None:
-    """Replace the allowed-email list, de-duplicating case-insensitively."""
-    share.allowed_emails.clear()
+    """Replace the allowed-email list, de-duplicating case-insensitively.
+
+    The collection is reconciled in place: entries that are still wanted are
+    kept, unwanted ones are removed and only genuinely new addresses are
+    inserted. Clearing and re-adding every entry would make the unit of work
+    emit an INSERT for an address that is only deleted later in the same flush,
+    tripping the ``(share_id, email)`` unique constraint.
+    """
+    desired: list[str] = []
     seen: set[str] = set()
     for email in emails:
         normalized = email.strip().lower()
         if normalized and normalized not in seen:
             seen.add(normalized)
-            share.allowed_emails.append(ShareAllowedEmail(email=normalized))
+            desired.append(normalized)
+
+    existing = {entry.email: entry for entry in share.allowed_emails}
+    for email, entry in existing.items():
+        if email not in seen:
+            share.allowed_emails.remove(entry)
+    for email in desired:
+        if email not in existing:
+            share.allowed_emails.append(ShareAllowedEmail(email=email))
 
 
 @router.post("", response_model=ShareRead, status_code=status.HTTP_201_CREATED)

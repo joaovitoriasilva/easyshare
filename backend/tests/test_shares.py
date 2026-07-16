@@ -108,6 +108,45 @@ def test_restricted_requires_email_list(client: TestClient) -> None:
     assert resp.status_code == 400
 
 
+def test_update_share_resaving_existing_emails(client: TestClient) -> None:
+    """Re-saving a restricted share with an unchanged email must not 500.
+
+    Regression: clearing and re-adding the same address made the flush emit an
+    INSERT before the DELETE, violating the (share_id, email) unique constraint.
+    """
+    headers = register_and_login(client)
+    pkg_id = _package_with_files(client, headers)
+    client.post(
+        f"/api/packages/{pkg_id}/share",
+        json={"visibility": "restricted", "allowed_emails": ["guest@example.com"]},
+        headers=headers,
+    )
+
+    # Frontend "Save changes" resends the emails it loaded, unchanged.
+    unchanged = client.patch(
+        f"/api/packages/{pkg_id}/share",
+        json={"visibility": "restricted", "allowed_emails": ["guest@example.com"]},
+        headers=headers,
+    )
+    assert unchanged.status_code == 200, unchanged.text
+    assert unchanged.json()["allowed_emails"] == ["guest@example.com"]
+
+    # Keeping one address while adding and removing others reconciles cleanly.
+    changed = client.patch(
+        f"/api/packages/{pkg_id}/share",
+        json={
+            "visibility": "restricted",
+            "allowed_emails": ["GUEST@example.com", "second@example.com"],
+        },
+        headers=headers,
+    )
+    assert changed.status_code == 200, changed.text
+    assert sorted(changed.json()["allowed_emails"]) == [
+        "guest@example.com",
+        "second@example.com",
+    ]
+
+
 def test_download_selected_files_as_zip(client: TestClient) -> None:
     headers = register_and_login(client)
     pkg_id = _package_with_files(client, headers)
