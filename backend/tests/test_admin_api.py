@@ -122,3 +122,31 @@ def _login_after_register(
 ) -> dict[str, str]:
     _register(client, username, email)
     return _login(client, username)
+
+
+def test_admin_can_delete_user(client: TestClient) -> None:
+    admin_headers = _login_after_register(client, "admin", "admin@example.com")
+    bob = _register(client, "bob", "bob@example.com")
+
+    resp = client.delete(f"/api/admin/users/{bob['id']}", headers=admin_headers)
+    assert resp.status_code == 200
+
+    listed = client.get("/api/admin/users", headers=admin_headers)
+    assert {u["username"] for u in listed.json()["items"]} == {"admin"}
+
+
+def test_admin_cannot_delete_self(client: TestClient) -> None:
+    admin = _register(client, "admin", "admin@example.com")
+    admin_headers = _login(client, "admin")
+
+    resp = client.delete(f"/api/admin/users/{admin['id']}", headers=admin_headers)
+    assert resp.status_code == 400
+
+
+def test_non_admin_cannot_delete_user(client: TestClient) -> None:
+    admin = _register(client, "admin", "admin@example.com")
+    _register(client, "bob", "bob@example.com")
+    bob_headers = _login(client, "bob")
+
+    resp = client.delete(f"/api/admin/users/{admin['id']}", headers=bob_headers)
+    assert resp.status_code == 403

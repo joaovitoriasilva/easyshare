@@ -5,11 +5,13 @@ import { ApiError } from "@/api/client";
 import type { AdminUserUpdate, User } from "@/api/types";
 import { useAuthStore } from "@/stores/auth";
 import { useToasts } from "@/composables/useToasts";
+import { useConfirm } from "@/composables/useConfirm";
 import { isValidEmail } from "@/lib/validation";
 import { Button, Input, Tooltip } from "@/components/ui";
 
 const auth = useAuthStore();
 const toast = useToasts();
+const { confirm } = useConfirm();
 
 const users = ref<User[]>([]);
 const total = ref(0);
@@ -62,6 +64,26 @@ function toggleAdmin(user: User): void {
 
 function toggleActive(user: User): void {
   patch(user, { is_active: !user.is_active });
+}
+
+async function deleteUser(user: User): Promise<void> {
+  const confirmed = await confirm({
+    title: "Delete user",
+    message: `"${user.username}" and all of their packages and files will be permanently deleted.`,
+    confirmText: "Delete",
+    destructive: true,
+  });
+  if (!confirmed) {
+    return;
+  }
+  try {
+    await adminApi.deleteUser(user.id);
+    users.value = users.value.filter((u) => u.id !== user.id);
+    total.value -= 1;
+    toast.success("User deleted");
+  } catch (err) {
+    toast.error(err instanceof ApiError ? err.message : "Failed to delete user");
+  }
 }
 
 function startEdit(user: User): void {
@@ -176,6 +198,14 @@ onMounted(load);
                       @click="toggleActive(user)"
                     >
                       {{ user.is_active ? "Deactivate" : "Activate" }}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      :disabled="isSelf(user)"
+                      @click="deleteUser(user)"
+                    >
+                      Delete
                     </Button>
                   </template>
                 </div>

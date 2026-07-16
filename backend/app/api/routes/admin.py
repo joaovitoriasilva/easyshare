@@ -8,7 +8,8 @@ from sqlalchemy import func, or_, select
 from app.api.deps import AdminUser, DbSession
 from app.core.audit import record_event
 from app.models.models import User
-from app.schemas.schemas import UserAdminUpdate, UserPage, UserRead
+from app.schemas.schemas import MessageResponse, UserAdminUpdate, UserPage, UserRead
+from app.services.storage import storage
 
 router = APIRouter(prefix="/admin/users", tags=["admin"])
 
@@ -95,3 +96,44 @@ def update_user(
         detail={key: str(value) for key, value in data.items()},
     )
     return user
+
+
+@router.delete("/{user_id}", response_model=MessageResponse)
+def delete_user(
+    user_id: int,
+    db: DbSession,
+    admin: AdminUser,
+    request: Request,
+) -> MessageResponse:
+    """Delete a user and all of their packages, files and shares.
+
+    Administrators cannot delete their own account, so an instance always
+    keeps at least one administrator.
+    """
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    if user.id == admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot delete your own account",
+        )
+
+    for package in user.packages:
+        for file in package.files:
+            storage.delete(file.storage_key)
+
+    db.delete(user)
+    db.commit()
+
+    record_event(
+        db,
+        "admin.user.delete",
+        request=request,
+        actor=f"user:{admin.id}",
+        target=f"user:{user_id}",
+    )
+    return MessageResponse(detail="User deleted")

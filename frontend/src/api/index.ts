@@ -197,4 +197,7 @@ export const adminApi = {
   updateUser(id: number, patch: AdminUserUpdate): Promise<User> {
     return api.request<User>(`/admin/users/${id}`, { method: "PATCH", body: patch });
   },
+  deleteUser(id: number): Promise<void> {
+    return api.request<void>(`/admin/users/${id}`, { method: "DELETE" });
+  },
 };
