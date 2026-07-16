@@ -17,6 +17,17 @@ COPY . .
 
 RUN chmod +x docker-entrypoint.sh
 
+# Run as a dedicated, unprivileged user instead of root. /data is where
+# EASYSHARE_DATABASE_URL (sqlite file) and EASYSHARE_STORAGE_DIR (uploads) live
+# (see docker-compose*.yml); creating and chown'ing it here means the named
+# volume inherits this ownership the first time Docker populates it from the
+# image, so the app can still create/write files there at runtime.
+RUN groupadd --system easyshare \
+    && useradd --system --gid easyshare --no-create-home --shell /usr/sbin/nologin easyshare \
+    && mkdir -p /data/storage \
+    && chown -R easyshare:easyshare /app /data
+USER easyshare
+
 EXPOSE 8000
 
 # Uses the stdlib (no curl/wget in python:slim) to hit the readiness probe,
