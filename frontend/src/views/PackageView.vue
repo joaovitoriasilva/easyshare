@@ -262,7 +262,7 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="space-y-4">
     <Button variant="ghost" size="sm" @click="router.push('/dashboard')">
       <ArrowLeft class="h-4 w-4" /> Back
     </Button>

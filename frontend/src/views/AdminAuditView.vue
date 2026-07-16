@@ -57,7 +57,7 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="space-y-4">
     <div>
       <h1 class="text-2xl font-bold">Audit log</h1>
       <p class="text-muted-foreground">All security events across the instance</p>
