@@ -60,6 +60,34 @@ describe("packagesApi.list pagination", () => {
   });
 });
 
+describe("packagesApi.update", () => {
+  const jsonResponse = (data: unknown): Response =>
+    new Response(JSON.stringify(data), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  it("sends a PATCH with the changed name and description", async () => {
+    const updated = { id: 7, name: "New name", description: "New desc", files: [] };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(updated));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await packagesApi.update(7, {
+      name: "New name",
+      description: "New desc",
+    });
+
+    expect(result).toMatchObject({ id: 7, name: "New name" });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/packages/7");
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body)).toEqual({
+      name: "New name",
+      description: "New desc",
+    });
+  });
+});
+
 describe("api error handling", () => {
   it("throws ApiError with the server detail message", async () => {
     vi.stubGlobal(

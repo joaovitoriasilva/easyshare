@@ -57,6 +57,15 @@ export const packagesApi = {
       body: { name, description },
     });
   },
+  update(
+    id: number,
+    payload: { name?: string; description?: string | null },
+  ): Promise<Package> {
+    return api.request<Package>(`/packages/${id}`, {
+      method: "PATCH",
+      body: payload,
+    });
+  },
   remove(id: number): Promise<void> {
     return api.request<void>(`/packages/${id}`, { method: "DELETE" });
   },

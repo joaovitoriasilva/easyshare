@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ArrowLeft, Download, Trash2, Upload } from "lucide-vue-next";
+import { ArrowLeft, Download, Pencil, Trash2, Upload } from "lucide-vue-next";
 import { packagesApi, sharesApi } from "@/api";
 import { ApiError, getToken } from "@/api/client";
 import type { Package, Share, Visibility } from "@/api/types";
@@ -30,6 +30,11 @@ const error = ref<string | null>(null);
 const loading = ref(true);
 const uploading = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
+
+const editing = ref(false);
+const editName = ref("");
+const editDescription = ref("");
+const savingDetails = ref(false);
 
 const visibility = ref<Visibility>("public");
 const emailsText = ref("");
@@ -66,6 +71,39 @@ function parseEmails(): string[] {
     .split(/[\s,]+/)
     .map((email) => email.trim())
     .filter(Boolean);
+}
+
+function startEdit(): void {
+  if (!pkg.value) {
+    return;
+  }
+  editName.value = pkg.value.name;
+  editDescription.value = pkg.value.description ?? "";
+  editing.value = true;
+}
+
+function cancelEdit(): void {
+  editing.value = false;
+}
+
+async function saveDetails(): Promise<void> {
+  if (!editName.value.trim()) {
+    toast.warning("Package name is required");
+    return;
+  }
+  savingDetails.value = true;
+  try {
+    pkg.value = await packagesApi.update(packageId, {
+      name: editName.value.trim(),
+      description: editDescription.value.trim() || null,
+    });
+    editing.value = false;
+    toast.success("Package updated");
+  } catch (err) {
+    toast.error(err instanceof ApiError ? err.message : "Failed to update package");
+  } finally {
+    savingDetails.value = false;
+  }
 }
 
 async function onUpload(event: Event): Promise<void> {
@@ -201,15 +239,45 @@ onMounted(load);
     <p v-if="loading" class="text-muted-foreground">Loading...</p>
 
     <template v-else-if="pkg">
-      <div class="flex items-start justify-between">
+      <div v-if="!editing" class="flex items-start justify-between">
         <div>
           <h1 class="text-2xl font-bold">{{ pkg.name }}</h1>
           <p v-if="pkg.description" class="text-muted-foreground">{{ pkg.description }}</p>
         </div>
-        <Button variant="destructive" size="sm" @click="deletePackage">
-          <Trash2 class="h-4 w-4" /> Delete package
-        </Button>
+        <div class="flex gap-2">
+          <Button variant="outline" size="sm" @click="startEdit">
+            <Pencil class="h-4 w-4" /> Edit
+          </Button>
+          <Button variant="destructive" size="sm" @click="deletePackage">
+            <Trash2 class="h-4 w-4" /> Delete package
+          </Button>
+        </div>
       </div>
+
+      <Card v-else>
+        <CardHeader>
+          <CardTitle>Edit package</CardTitle>
+          <CardDescription>Update the package name and description.</CardDescription>
+        </CardHeader>
+        <form @submit.prevent="saveDetails">
+          <CardContent class="space-y-4">
+            <div class="space-y-2">
+              <Label for="edit-name">Name</Label>
+              <Input id="edit-name" v-model="editName" placeholder="Project assets" />
+            </div>
+            <div class="space-y-2">
+              <Label for="edit-desc">Description</Label>
+              <Input id="edit-desc" v-model="editDescription" placeholder="Optional" />
+            </div>
+            <div class="flex gap-2">
+              <Button type="submit" :disabled="savingDetails">
+                {{ savingDetails ? "Saving..." : "Save" }}
+              </Button>
+              <Button type="button" variant="outline" @click="cancelEdit">Cancel</Button>
+            </div>
+          </CardContent>
+        </form>
+      </Card>
 
       <Card>
         <CardHeader>
