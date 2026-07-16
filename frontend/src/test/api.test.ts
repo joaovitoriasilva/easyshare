@@ -158,6 +158,42 @@ describe("packagesApi.update", () => {
   });
 });
 
+describe("packagesApi stats and bulk file actions", () => {
+  const jsonResponse = (data: unknown): Response =>
+    new Response(JSON.stringify(data), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  it("fetches package stats", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ views: 3, downloads: 5, file_downloads: { 1: 5 } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await packagesApi.stats(7);
+
+    expect(result).toEqual({ views: 3, downloads: 5, file_downloads: { 1: 5 } });
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/packages/7/stats");
+  });
+
+  it("builds the download-all url", () => {
+    expect(packagesApi.downloadAllUrl(7)).toBe("/api/packages/7/download");
+  });
+
+  it("sends a DELETE to remove all files", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ detail: "All files deleted" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await packagesApi.removeAllFiles(7);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/packages/7/files");
+    expect(init.method).toBe("DELETE");
+  });
+});
+
+
 describe("api error handling", () => {
   it("throws ApiError with the server detail message", async () => {
     vi.stubGlobal(

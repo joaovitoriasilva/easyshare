@@ -30,6 +30,12 @@ export interface Package {
   files: PackageFile[];
 }
 
+export interface PackageStats {
+  views: number;
+  downloads: number;
+  file_downloads: Record<number, number>;
+}
+
 export interface Share {
   id: number;
   package_id: number;

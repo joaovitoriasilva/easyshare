@@ -133,7 +133,7 @@ function logout(): void {
           <Package2 class="h-4 w-4" />
           EasyShare
         </span>
-        <span>{{ yearRange }} • v0.1.1</span>
+        <span>{{ yearRange }} • v0.1.2</span>
       </div>
     </footer>
     <Toaster />

@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { ArrowLeft, Download, Pencil, Trash2, Upload } from "lucide-vue-next";
 import { packagesApi, sharesApi } from "@/api";
 import { ApiError, getToken } from "@/api/client";
-import type { Package, Share, Visibility } from "@/api/types";
+import type { Package, PackageStats, Share, Visibility } from "@/api/types";
 import { formatBytes } from "@/lib/format";
 import { downloadBlob } from "@/lib/download";
 import { invalidEmails } from "@/lib/validation";
@@ -31,9 +31,11 @@ const packageId = Number(route.params.id);
 
 const pkg = ref<Package | null>(null);
 const share = ref<Share | null>(null);
+const stats = ref<PackageStats | null>(null);
 const error = ref<string | null>(null);
 const loading = ref(true);
 const uploading = ref(false);
+const downloadingAll = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 
 const editing = ref(false);
@@ -64,11 +66,20 @@ async function load(): Promise<void> {
         throw err;
       }
     }
+    packagesApi.stats(packageId).then((value) => {
+      stats.value = value;
+    }).catch(() => {
+      stats.value = null;
+    });
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to load package";
   } finally {
     loading.value = false;
   }
+}
+
+function fileDownloads(fileId: number): number {
+  return stats.value?.file_downloads[fileId] ?? 0;
 }
 
 function parseEmails(): string[] {
@@ -162,6 +173,28 @@ async function removeFile(fileId: number): Promise<void> {
   }
 }
 
+async function removeAllFiles(): Promise<void> {
+  if (!pkg.value?.files.length) {
+    return;
+  }
+  const confirmed = await confirm({
+    title: "Delete all files",
+    message: "Every file in this package will be permanently deleted.",
+    confirmText: "Delete all",
+    destructive: true,
+  });
+  if (!confirmed) {
+    return;
+  }
+  try {
+    await packagesApi.removeAllFiles(packageId);
+    pkg.value = await packagesApi.get(packageId);
+    toast.success("All files removed");
+  } catch (err) {
+    toast.error(err instanceof ApiError ? err.message : "Failed to remove files");
+  }
+}
+
 function downloadOwned(fileId: number, filename: string): void {
   const token = getToken();
   fetch(`/api/packages/${packageId}/files/${fileId}/download`, {
@@ -175,6 +208,28 @@ function downloadOwned(fileId: number, filename: string): void {
     })
     .then((blob) => downloadBlob(blob, filename))
     .catch(() => toast.error("Failed to download file"));
+}
+
+async function downloadAllOwned(): Promise<void> {
+  if (!pkg.value?.files.length) {
+    return;
+  }
+  downloadingAll.value = true;
+  const token = getToken();
+  try {
+    const response = await fetch(packagesApi.downloadAllUrl(packageId), {
+      headers: token ? { Authorization: "Bearer " + token } : {},
+    });
+    if (!response.ok) {
+      throw new Error("Download failed");
+    }
+    const blob = await response.blob();
+    downloadBlob(blob, `${pkg.value.name}.zip`);
+  } catch {
+    toast.error("Failed to download files");
+  } finally {
+    downloadingAll.value = false;
+  }
 }
 
 async function enableSharing(): Promise<void> {
@@ -311,123 +366,157 @@ onMounted(load);
         </form>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Files</CardTitle>
-          <CardDescription>Upload one or more files to this package.</CardDescription>
-        </CardHeader>
-        <CardContent class="space-y-4">
-          <input
-            ref="fileInput"
-            type="file"
-            multiple
-            class="hidden"
-            @change="onUpload"
-          />
-          <Button :disabled="uploading" @click="fileInput?.click()">
-            <Upload class="h-4 w-4" />
-            {{ uploading ? "Uploading..." : "Upload files" }}
-          </Button>
-
-          <ul v-if="pkg.files.length" class="divide-y rounded-md border">
-            <li
-              v-for="file in pkg.files"
-              :key="file.id"
-              class="flex items-center justify-between gap-3 p-3"
-            >
-              <div class="min-w-0">
-                <p class="truncate text-sm font-medium">{{ file.filename }}</p>
-                <p class="text-xs text-muted-foreground">{{ formatBytes(file.size) }}</p>
-              </div>
-              <div class="flex shrink-0 gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Download"
-                  @click="downloadOwned(file.id, file.filename)"
-                >
-                  <Download class="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Delete file"
-                  @click="removeFile(file.id)"
-                >
-                  <Trash2 class="h-4 w-4" />
-                </Button>
-              </div>
-            </li>
-          </ul>
-          <p v-else class="text-sm text-muted-foreground">No files yet.</p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Sharing</CardTitle>
-          <CardDescription>
-            Sharing is off by default. Enable it to generate a secure link.
-          </CardDescription>
-        </CardHeader>
-        <CardContent class="space-y-4">
-          <div class="space-y-2">
-            <Label>Visibility</Label>
-            <div class="flex gap-4">
-              <label class="flex items-center gap-2 text-sm">
-                <input v-model="visibility" type="radio" value="public" /> Public
-              </label>
-              <label class="flex items-center gap-2 text-sm">
-                <input v-model="visibility" type="radio" value="restricted" />
-                Restricted (by email)
-              </label>
+      <div class="grid gap-4 lg:grid-cols-2 lg:items-start">
+        <Card>
+          <CardHeader>
+            <CardTitle>Files</CardTitle>
+            <CardDescription>
+              Upload one or more files to this package.
+              <span v-if="stats">
+                &middot; {{ stats.views }} view{{ stats.views === 1 ? "" : "s" }}
+                &middot; {{ stats.downloads }} download{{ stats.downloads === 1 ? "" : "s" }}
+              </span>
+            </CardDescription>
+          </CardHeader>
+          <CardContent class="space-y-4">
+            <input
+              ref="fileInput"
+              type="file"
+              multiple
+              class="hidden"
+              @change="onUpload"
+            />
+            <div class="flex flex-wrap gap-2">
+              <Button :disabled="uploading" @click="fileInput?.click()">
+                <Upload class="h-4 w-4" />
+                {{ uploading ? "Uploading..." : "Upload files" }}
+              </Button>
+              <Button
+                v-if="pkg.files.length"
+                variant="outline"
+                :disabled="downloadingAll"
+                @click="downloadAllOwned"
+              >
+                <Download class="h-4 w-4" />
+                {{ downloadingAll ? "Preparing..." : "Download all" }}
+              </Button>
+              <Button
+                v-if="pkg.files.length"
+                variant="destructive"
+                @click="removeAllFiles"
+              >
+                <Trash2 class="h-4 w-4" /> Delete all
+              </Button>
             </div>
-          </div>
 
-          <div v-if="visibility === 'restricted'" class="space-y-2">
-            <Label for="emails">Allowed emails</Label>
-            <Tooltip
-              :content="'Invalid email(s): ' + emailIssues.join(', ')"
-              :open="emailIssues.length > 0"
-            >
-              <Input
-                id="emails"
-                v-model="emailsText"
-                placeholder="alice@example.com, bob@example.com"
-              />
-            </Tooltip>
-            <p class="text-xs text-muted-foreground">
-              Separate multiple emails with commas.
-            </p>
-          </div>
+            <ul v-if="pkg.files.length" class="divide-y rounded-md border">
+              <li
+                v-for="file in pkg.files"
+                :key="file.id"
+                class="flex items-center justify-between gap-3 p-3"
+              >
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-medium">{{ file.filename }}</p>
+                  <p class="text-xs text-muted-foreground">
+                    {{ formatBytes(file.size) }}
+                    <span v-if="stats">
+                      &middot; {{ fileDownloads(file.id) }} download{{
+                        fileDownloads(file.id) === 1 ? "" : "s"
+                      }}
+                    </span>
+                  </p>
+                </div>
+                <div class="flex shrink-0 gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Download"
+                    @click="downloadOwned(file.id, file.filename)"
+                  >
+                    <Download class="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Delete file"
+                    @click="removeFile(file.id)"
+                  >
+                    <Trash2 class="h-4 w-4" />
+                  </Button>
+                </div>
+              </li>
+            </ul>
+            <p v-else class="text-sm text-muted-foreground">No files yet.</p>
+          </CardContent>
+        </Card>
 
-          <div v-if="!share" class="flex">
-            <Button :disabled="!restrictedEmailsOk" @click="enableSharing">Enable sharing</Button>
-          </div>
-
-          <div v-else class="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Sharing</CardTitle>
+            <CardDescription>
+              Sharing is off by default. Enable it to generate a secure link.
+            </CardDescription>
+          </CardHeader>
+          <CardContent class="space-y-4">
             <div class="space-y-2">
-              <Label for="link">Share link</Label>
-              <div class="flex gap-2">
-                <Input id="link" :model-value="shareLink" class="min-w-0" readonly />
-                <Button variant="secondary" @click="copyLink">
-                  Copy
-                </Button>
+              <Label>Visibility</Label>
+              <div class="flex gap-4">
+                <label class="flex items-center gap-2 text-sm">
+                  <input v-model="visibility" type="radio" value="public" /> Public
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                  <input v-model="visibility" type="radio" value="restricted" />
+                  Restricted (by email)
+                </label>
               </div>
-              <p class="text-xs" :class="share.is_enabled ? 'text-green-600' : 'text-muted-foreground'">
-                {{ share.is_enabled ? "Sharing is active" : "Sharing is paused" }}
+            </div>
+
+            <div v-if="visibility === 'restricted'" class="space-y-2">
+              <Label for="emails">Allowed emails</Label>
+              <Tooltip
+                :content="'Invalid email(s): ' + emailIssues.join(', ')"
+                :open="emailIssues.length > 0"
+              >
+                <Input
+                  id="emails"
+                  v-model="emailsText"
+                  placeholder="alice@example.com, bob@example.com"
+                />
+              </Tooltip>
+              <p class="text-xs text-muted-foreground">
+                Separate multiple emails with commas.
               </p>
             </div>
-            <div class="flex flex-wrap gap-2">
-              <Button variant="secondary" :disabled="!restrictedEmailsOk" @click="updateSharing">Save changes</Button>
-              <Button variant="outline" @click="toggleEnabled">
-                {{ share.is_enabled ? "Pause" : "Resume" }}
-              </Button>
-              <Button variant="destructive" @click="disableSharing">Disable sharing</Button>
+
+            <div v-if="!share" class="flex">
+              <Button :disabled="!restrictedEmailsOk" @click="enableSharing">Enable sharing</Button>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+
+            <div v-else class="space-y-4">
+              <div class="space-y-2">
+                <Label for="link">Share link</Label>
+                <div class="flex gap-2">
+                  <Input id="link" :model-value="shareLink" class="min-w-0" readonly />
+                  <Button variant="secondary" @click="copyLink">
+                    Copy
+                  </Button>
+                </div>
+                <p class="text-xs" :class="share.is_enabled ? 'text-green-600' : 'text-muted-foreground'">
+                  {{ share.is_enabled ? "Sharing is active" : "Sharing is paused" }}
+                </p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <Button variant="secondary" :disabled="!restrictedEmailsOk" @click="updateSharing">Save changes</Button>
+                <Button variant="outline" @click="toggleEnabled">
+                  {{ share.is_enabled ? "Pause" : "Resume" }}
+                </Button>
+                <Button variant="destructive" @click="disableSharing">Disable sharing</Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </template>
   </div>
 </template>
+

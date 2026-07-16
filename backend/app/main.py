@@ -23,7 +23,7 @@ configure_logging()
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.1.1",
+    version="0.1.2",
     description="Secure file and package sharing API.",
 )
 

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import io
+import zipfile
 
 import pytest
+from app.core.config import settings
 from fastapi.testclient import TestClient
 
-from app.core.config import settings
 from tests.conftest import register_and_login
 
 
@@ -167,3 +168,90 @@ def test_upload_rejects_oversized_file(
         headers=headers,
     )
     assert resp.status_code == 413
+
+
+def test_package_stats_counts_views_and_downloads(client: TestClient) -> None:
+    headers = register_and_login(client)
+    pkg_id = _create_package(client, headers)
+    file_id = client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("a.txt", io.BytesIO(b"aaa"), "text/plain")},
+        headers=headers,
+    ).json()["id"]
+    token = client.post(
+        f"/api/packages/{pkg_id}/share", json={}, headers=headers
+    ).json()["token"]
+
+    # Two page views, one single-file download, one archive download.
+    client.get(f"/api/s/{token}")
+    client.get(f"/api/s/{token}")
+    client.get(f"/api/s/{token}/files/{file_id}/download")
+    client.get(f"/api/s/{token}/download")
+
+    stats = client.get(f"/api/packages/{pkg_id}/stats", headers=headers)
+    assert stats.status_code == 200
+    body = stats.json()
+    assert body["views"] == 2
+    assert body["downloads"] == 2
+    assert body["file_downloads"] == {str(file_id): 2}
+
+
+def test_package_stats_requires_ownership(client: TestClient) -> None:
+    alice = register_and_login(client, "alice", "alice@example.com")
+    pkg_id = _create_package(client, alice)
+    bob = register_and_login(client, "bob", "bob@example.com")
+
+    assert client.get(f"/api/packages/{pkg_id}/stats", headers=bob).status_code == 404
+
+
+def test_download_all_files_as_zip(client: TestClient) -> None:
+    headers = register_and_login(client)
+    pkg_id = _create_package(client, headers)
+    client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("a.txt", io.BytesIO(b"aaa"), "text/plain")},
+        headers=headers,
+    )
+    client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("b.txt", io.BytesIO(b"bbb"), "text/plain")},
+        headers=headers,
+    )
+
+    resp = client.get(f"/api/packages/{pkg_id}/download", headers=headers)
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/zip"
+
+    archive = zipfile.ZipFile(io.BytesIO(resp.content))
+    assert set(archive.namelist()) == {"a.txt", "b.txt"}
+
+
+def test_download_all_files_empty_package(client: TestClient) -> None:
+    headers = register_and_login(client)
+    pkg_id = _create_package(client, headers)
+
+    resp = client.get(f"/api/packages/{pkg_id}/download", headers=headers)
+    assert resp.status_code == 404
+
+
+def test_delete_all_files(client: TestClient) -> None:
+    headers = register_and_login(client)
+    pkg_id = _create_package(client, headers)
+    client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("a.txt", io.BytesIO(b"aaa"), "text/plain")},
+        headers=headers,
+    )
+    client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("b.txt", io.BytesIO(b"bbb"), "text/plain")},
+        headers=headers,
+    )
+
+    resp = client.delete(f"/api/packages/{pkg_id}/files", headers=headers)
+    assert resp.status_code == 200
+
+    pkg = client.get(f"/api/packages/{pkg_id}", headers=headers).json()
+    assert pkg["files"] == []
+
+

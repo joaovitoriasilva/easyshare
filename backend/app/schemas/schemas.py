@@ -94,6 +94,14 @@ class PackageRead(BaseModel):
     files: list[PackageFileRead] = []
 
 
+class PackageStats(BaseModel):
+    """Aggregated share view/download counters for an owned package."""
+
+    views: int
+    downloads: int
+    file_downloads: dict[int, int] = Field(default_factory=dict)
+
+
 # --- Shares ----------------------------------------------------------------
 
 

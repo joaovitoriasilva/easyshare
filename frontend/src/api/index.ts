@@ -4,6 +4,7 @@ import type {
   AuditPage,
   AuthConfig,
   Package,
+  PackageStats,
   PublicShare,
   Share,
   User,
@@ -88,6 +89,15 @@ export const packagesApi = {
     return api.request<void>(`/packages/${packageId}/files/${fileId}`, {
       method: "DELETE",
     });
+  },
+  removeAllFiles(packageId: number): Promise<void> {
+    return api.request<void>(`/packages/${packageId}/files`, { method: "DELETE" });
+  },
+  stats(id: number): Promise<PackageStats> {
+    return api.request<PackageStats>(`/packages/${id}/stats`);
+  },
+  downloadAllUrl(id: number): string {
+    return `/api/packages/${id}/download`;
   },
 };
 
