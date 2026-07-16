@@ -271,12 +271,12 @@ onMounted(load);
     <p v-if="loading" class="text-muted-foreground">Loading...</p>
 
     <template v-else-if="pkg">
-      <div v-if="!editing" class="flex items-start justify-between">
-        <div>
-          <h1 class="text-2xl font-bold">{{ pkg.name }}</h1>
-          <p v-if="pkg.description" class="text-muted-foreground">{{ pkg.description }}</p>
+      <div v-if="!editing" class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div class="min-w-0">
+          <h1 class="break-words text-2xl font-bold">{{ pkg.name }}</h1>
+          <p v-if="pkg.description" class="break-words text-muted-foreground">{{ pkg.description }}</p>
         </div>
-        <div class="flex gap-2">
+        <div class="flex shrink-0 gap-2">
           <Button variant="outline" size="sm" @click="startEdit">
             <Pencil class="h-4 w-4" /> Edit
           </Button>
@@ -333,13 +333,13 @@ onMounted(load);
             <li
               v-for="file in pkg.files"
               :key="file.id"
-              class="flex items-center justify-between p-3"
+              class="flex items-center justify-between gap-3 p-3"
             >
-              <div>
-                <p class="text-sm font-medium">{{ file.filename }}</p>
+              <div class="min-w-0">
+                <p class="truncate text-sm font-medium">{{ file.filename }}</p>
                 <p class="text-xs text-muted-foreground">{{ formatBytes(file.size) }}</p>
               </div>
-              <div class="flex gap-1">
+              <div class="flex shrink-0 gap-1">
                 <Button
                   variant="ghost"
                   size="icon"
@@ -409,7 +409,7 @@ onMounted(load);
             <div class="space-y-2">
               <Label for="link">Share link</Label>
               <div class="flex gap-2">
-                <Input id="link" :model-value="shareLink" readonly />
+                <Input id="link" :model-value="shareLink" class="min-w-0" readonly />
                 <Button variant="secondary" @click="copyLink">
                   Copy
                 </Button>

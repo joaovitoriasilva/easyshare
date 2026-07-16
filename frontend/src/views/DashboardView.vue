@@ -65,12 +65,12 @@ onMounted(load);
 
 <template>
   <div class="space-y-6">
-    <div class="flex items-center justify-between">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <h1 class="text-2xl font-bold">Your packages</h1>
         <p class="text-muted-foreground">Create packages and share them securely</p>
       </div>
-      <Button @click="showForm = !showForm">
+      <Button class="w-full sm:w-auto" @click="showForm = !showForm">
         <Plus class="h-4 w-4" /> New package
       </Button>
     </div>

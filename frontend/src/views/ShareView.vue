@@ -146,12 +146,12 @@ onMounted(load);
           </div>
 
           <div v-else class="space-y-4">
-            <div class="flex items-center justify-between">
+            <div class="flex items-center justify-between gap-3">
               <label class="flex items-center gap-2 text-sm">
                 <Checkbox :model-value="allSelected" @update:model-value="toggleAll" />
                 Select all
               </label>
-              <Button size="sm" @click="downloadSelected">
+              <Button size="sm" class="shrink-0" @click="downloadSelected">
                 <Download class="h-4 w-4" />
                 {{ hasSelection ? `Download ${selected.size} selected` : "Download all" }}
               </Button>
@@ -161,15 +161,15 @@ onMounted(load);
               <li
                 v-for="file in files"
                 :key="file.id"
-                class="flex items-center justify-between p-3"
+                class="flex items-center justify-between gap-3 p-3"
               >
-                <label class="flex items-center gap-3">
+                <label class="flex min-w-0 items-center gap-3">
                   <Checkbox
                     :model-value="selected.has(file.id)"
                     @update:model-value="() => toggle(file.id)"
                   />
-                  <span>
-                    <span class="block text-sm font-medium">{{ file.filename }}</span>
+                  <span class="min-w-0">
+                    <span class="block truncate text-sm font-medium">{{ file.filename }}</span>
                     <span class="block text-xs text-muted-foreground">
                       {{ formatBytes(file.size) }}
                     </span>
@@ -178,6 +178,7 @@ onMounted(load);
                 <Button
                   variant="ghost"
                   size="icon"
+                  class="shrink-0"
                   aria-label="Download file"
                   @click="downloadFile(file.id, file.filename)"
                 >
