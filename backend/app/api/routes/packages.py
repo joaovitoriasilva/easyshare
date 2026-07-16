@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
@@ -147,7 +147,7 @@ def download_owned_file(
     file_id: int,
     db: DbSession,
     current_user: CurrentUser,
-) -> StreamingResponse:
+) -> FileResponse:
     """Download a file from an owned package."""
     package = _get_owned_package(db, package_id, current_user.id)
     record = db.get(PackageFile, file_id)
@@ -155,13 +155,10 @@ def download_owned_file(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="File not found"
         )
-    stream = storage.open_stream(record.storage_key)
-    return StreamingResponse(
-        stream,  # type: ignore[arg-type]
+    return FileResponse(
+        storage.path(record.storage_key),
         media_type=record.content_type,
-        headers={
-            "Content-Disposition": f'attachment; filename="{record.filename}"'
-        },
+        filename=record.filename,
     )
 
 

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-import io
+import os
+import tempfile
 import zipfile
 
 from fastapi import APIRouter, HTTPException, Query, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse
 from sqlalchemy import select
+from starlette.background import BackgroundTask
 
 from app.api.deps import DbSession
 from app.models.models import PackageFile, Share, ShareVisibility
@@ -106,18 +108,15 @@ def download_shared_file(
     file_id: int,
     db: DbSession,
     email: str | None = Query(default=None),
-) -> StreamingResponse:
+) -> FileResponse:
     """Download a single file from a share."""
     share = _get_active_share(db, token)
     _authorize_email(share, email)
     record = _resolve_file(share, file_id)
-    stream = storage.open_stream(record.storage_key)
-    return StreamingResponse(
-        stream,  # type: ignore[arg-type]
+    return FileResponse(
+        storage.path(record.storage_key),
         media_type=record.content_type,
-        headers={
-            "Content-Disposition": f'attachment; filename="{record.filename}"'
-        },
+        filename=record.filename,
     )
 
 
@@ -127,11 +126,13 @@ def download_shared_archive(
     db: DbSession,
     email: str | None = Query(default=None),
     file_ids: list[int] | None = Query(default=None),
-) -> StreamingResponse:
+) -> FileResponse:
     """Download all files, or a selected subset, as a zip archive.
 
     Recipients may pass ``file_ids`` repeatedly to select specific files;
-    when omitted, every file in the package is included.
+    when omitted, every file in the package is included. The archive is written
+    to a temporary file (spilling to disk instead of buffering the whole zip in
+    memory) and streamed back, then removed once the response is sent.
     """
     share = _get_active_share(db, token)
     _authorize_email(share, email)
@@ -147,28 +148,40 @@ def download_shared_archive(
             detail="No matching files to download",
         )
 
-    buffer = io.BytesIO()
-    seen_counts: dict[str, int] = {}
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        for file in selected:
-            original = file.filename
-            count = seen_counts.get(original, 0)
-            seen_counts[original] = count + 1
-            if count == 0:
-                arcname = original
-            else:
-                stem, dot, ext = original.rpartition(".")
-                arcname = (
-                    f"{stem} ({count}){dot}{ext}" if dot else f"{original} ({count})"
-                )
-            archive.write(storage.path(file.storage_key), arcname=arcname)
+    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    tmp_path = tmp.name
+    try:
+        seen_counts: dict[str, int] = {}
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as archive:
+            for file in selected:
+                original = file.filename
+                count = seen_counts.get(original, 0)
+                seen_counts[original] = count + 1
+                if count == 0:
+                    arcname = original
+                else:
+                    stem, dot, ext = original.rpartition(".")
+                    arcname = (
+                        f"{stem} ({count}){dot}{ext}"
+                        if dot
+                        else f"{original} ({count})"
+                    )
+                archive.write(storage.path(file.storage_key), arcname=arcname)
+    except Exception:
+        tmp.close()
+        os.unlink(tmp_path)
+        raise
+    tmp.close()
 
-    buffer.seek(0)
-    package_name = share.package.name.replace('"', "")
-    return StreamingResponse(
-        buffer,
+    safe_name = (
+        "".join(
+            ch for ch in share.package.name if ch.isprintable() and ch not in '"\\'
+        ).strip()
+        or "package"
+    )
+    return FileResponse(
+        tmp_path,
         media_type="application/zip",
-        headers={
-            "Content-Disposition": f'attachment; filename="{package_name}.zip"'
-        },
+        filename=f"{safe_name}.zip",
+        background=BackgroundTask(os.unlink, tmp_path),
     )
