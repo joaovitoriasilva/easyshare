@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     storage_dir: Path = Path("./storage")
     max_file_size: int = 100 * 1024 * 1024  # 100 MB per file
     max_files_per_package: int = 50
+    max_archive_size: int = 5 * 1024 * 1024 * 1024  # 5 GiB per zip download
 
     # CORS
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]

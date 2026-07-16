@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession, OwnedFile, OwnedPackage
 from app.core.config import settings
@@ -39,13 +40,25 @@ def create_package(
 
 
 @router.get("", response_model=list[PackageRead])
-def list_packages(db: DbSession, current_user: CurrentUser) -> list[Package]:
-    """List all packages owned by the current user."""
+def list_packages(
+    db: DbSession,
+    current_user: CurrentUser,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> list[Package]:
+    """List packages owned by the current user, newest first (paginated).
+
+    ``files`` are eager-loaded with ``selectinload`` so serialising the list
+    issues one extra query instead of one per package (avoids N+1).
+    """
     return list(
         db.scalars(
             select(Package)
             .where(Package.owner_id == current_user.id)
             .order_by(Package.created_at.desc())
+            .options(selectinload(Package.files))
+            .limit(limit)
+            .offset(offset)
         )
     )
 

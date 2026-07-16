@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { publicApi } from "@/api";
+import { packagesApi, publicApi } from "@/api";
 import { ApiError, getToken, setToken } from "@/api/client";
 
 afterEach(() => {
@@ -32,6 +32,31 @@ describe("publicApi url builders", () => {
     expect(url).toContain("access=signed.jwt.token");
     expect(url).not.toContain("email");
     expect(url).toContain("/api/s/tok/files/5/download");
+  });
+});
+
+describe("packagesApi.list pagination", () => {
+  const jsonResponse = (data: unknown): Response =>
+    new Response(JSON.stringify(data), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  it("fetches successive pages until a short page", async () => {
+    const fullPage = Array.from({ length: 100 }, (_, i) => ({ id: i }));
+    const lastPage = [{ id: 100 }];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(fullPage))
+      .mockResolvedValueOnce(jsonResponse(lastPage));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await packagesApi.list();
+
+    expect(result).toHaveLength(101);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0]).toContain("offset=0");
+    expect(fetchMock.mock.calls[1][0]).toContain("offset=100");
   });
 });
 

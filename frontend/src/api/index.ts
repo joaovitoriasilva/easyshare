@@ -32,8 +32,21 @@ export const authApi = {
 };
 
 export const packagesApi = {
-  list(): Promise<Package[]> {
-    return api.request<Package[]>("/packages");
+  async list(): Promise<Package[]> {
+    // The API paginates; fetch successive pages until a short (final) page so
+    // the dashboard shows every package without an unbounded query.
+    const pageSize = 100;
+    const all: Package[] = [];
+    for (let offset = 0; ; offset += pageSize) {
+      const page = await api.request<Package[]>(
+        `/packages?limit=${pageSize}&offset=${offset}`,
+      );
+      all.push(...page);
+      if (page.length < pageSize) {
+        break;
+      }
+    }
+    return all;
   },
   get(id: number): Promise<Package> {
     return api.request<Package>(`/packages/${id}`);

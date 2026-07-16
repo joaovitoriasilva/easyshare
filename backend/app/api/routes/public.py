@@ -12,6 +12,7 @@ from sqlalchemy import select
 from starlette.background import BackgroundTask
 
 from app.api.deps import DbSession
+from app.core.config import settings
 from app.core.rate_limit import SENSITIVE, limiter
 from app.core.security import (
     create_share_access_token,
@@ -194,11 +195,20 @@ def download_shared_archive(
             detail="No matching files to download",
         )
 
+    if sum(file.size for file in selected) > settings.max_archive_size:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="The selected files exceed the maximum archive size",
+        )
+
     tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
     tmp_path = tmp.name
     try:
         seen_counts: dict[str, int] = {}
-        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as archive:
+        # ZIP_STORED (no compression): uploaded files are usually already
+        # compressed (images, video, PDFs, archives), so DEFLATE would mostly
+        # burn CPU and hold the worker thread for negligible size savings.
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as archive:
             for file in selected:
                 original = file.filename
                 count = seen_counts.get(original, 0)
