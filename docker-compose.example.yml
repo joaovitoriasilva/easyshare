@@ -5,8 +5,8 @@ services:
       EASYSHARE_SECRET_KEY: ${EASYSHARE_SECRET_KEY:-please-change-me-in-production}
       EASYSHARE_DATABASE_URL: sqlite:////data/easyshare.db
       EASYSHARE_STORAGE_DIR: /data/storage
-      EASYSHARE_CORS_ORIGINS: http://localhost:8090
-      EASYSHARE_ALLOW_REGISTRATION: "false"
+      EASYSHARE_CORS_ORIGINS: http://localhost:8080
+      EASYSHARE_ALLOW_REGISTRATION: "true"
     volumes:
       - backend-data:/data
     ports:
@@ -17,7 +17,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "8090:8080"
+      - "8080:8080"
 
 volumes:
   backend-data:

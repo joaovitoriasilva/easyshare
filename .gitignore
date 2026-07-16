@@ -11,5 +11,8 @@ Thumbs.db
 .env
 .env.*
 
+# Docker compose files
+docker-compose.yml
+
 # Logs
 *.log
