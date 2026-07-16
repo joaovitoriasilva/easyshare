@@ -12,7 +12,7 @@ const route = useRoute();
 
 const mobileOpen = ref(false);
 
-const startYear = 2023
+const startYear = 2026
 const yearRange = computed(() => {
   const current = new Date().getFullYear()
   return current === startYear ? `${startYear}` : `${startYear} - ${current}`
