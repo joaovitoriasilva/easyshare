@@ -8,3 +8,5 @@ export { default as CardDescription } from "./CardDescription.vue";
 export { default as CardContent } from "./CardContent.vue";
 export { default as CardFooter } from "./CardFooter.vue";
 export { default as Checkbox } from "./Checkbox.vue";
+export { default as Toast } from "./Toast.vue";
+export { default as Toaster } from "./Toaster.vue";

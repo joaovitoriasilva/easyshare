@@ -2,7 +2,7 @@
 import { RouterLink, RouterView, useRouter } from "vue-router";
 import { Package2, LogOut } from "lucide-vue-next";
 import { useAuthStore } from "@/stores/auth";
-import { Button } from "@/components/ui";
+import { Button, Toaster } from "@/components/ui";
 import ThemeToggle from "@/components/ThemeToggle.vue";
 
 const auth = useAuthStore();
@@ -35,5 +35,6 @@ function logout(): void {
     <main class="container py-8">
       <RouterView />
     </main>
+    <Toaster />
   </div>
 </template>

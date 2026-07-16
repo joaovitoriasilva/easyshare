@@ -6,6 +6,7 @@ import { publicApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { PublicShare } from "@/api/types";
 import { formatBytes } from "@/lib/format";
+import { useToastStore } from "@/stores/toast";
 import {
   Button,
   Card,
@@ -20,6 +21,7 @@ import {
 
 const route = useRoute();
 const token = String(route.params.token);
+const toast = useToastStore();
 
 const share = ref<PublicShare | null>(null);
 const loading = ref(true);
@@ -56,6 +58,7 @@ async function unlock(): Promise<void> {
     share.value = await publicApi.access(token, email.value);
     downloadToken.value = share.value.download_token ?? null;
     unlocked.value = true;
+    toast.success("Access granted");
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Access denied";
   }
@@ -79,6 +82,7 @@ function toggleAll(): void {
 
 function downloadFile(id: number, filename: string): void {
   triggerDownload(publicApi.fileUrl(token, id, downloadToken.value), filename);
+  toast.success("Download started");
 }
 
 function downloadSelected(): void {
@@ -87,6 +91,7 @@ function downloadSelected(): void {
     publicApi.downloadUrl(token, ids, downloadToken.value),
     `${share.value?.package_name ?? "package"}.zip`,
   );
+  toast.info("Preparing your download\u2026");
 }
 
 function triggerDownload(url: string, filename: string): void {

@@ -6,6 +6,7 @@ import { packagesApi, sharesApi } from "@/api";
 import { ApiError, getToken } from "@/api/client";
 import type { Package, Share, Visibility } from "@/api/types";
 import { formatBytes } from "@/lib/format";
+import { useToastStore } from "@/stores/toast";
 import {
   Button,
   Card,
@@ -19,6 +20,7 @@ import {
 
 const route = useRoute();
 const router = useRouter();
+const toast = useToastStore();
 const packageId = Number(route.params.id);
 
 const pkg = ref<Package | null>(null);
@@ -72,14 +74,16 @@ async function onUpload(event: Event): Promise<void> {
     return;
   }
   uploading.value = true;
-  error.value = null;
   try {
+    let count = 0;
     for (const file of Array.from(files)) {
       await packagesApi.uploadFile(packageId, file);
+      count += 1;
     }
     pkg.value = await packagesApi.get(packageId);
+    toast.success(`Uploaded ${count} file${count === 1 ? "" : "s"}`);
   } catch (err) {
-    error.value = err instanceof ApiError ? err.message : "Upload failed";
+    toast.error(err instanceof ApiError ? err.message : "Upload failed");
   } finally {
     uploading.value = false;
     if (fileInput.value) {
@@ -89,8 +93,13 @@ async function onUpload(event: Event): Promise<void> {
 }
 
 async function removeFile(fileId: number): Promise<void> {
-  await packagesApi.removeFile(packageId, fileId);
-  pkg.value = await packagesApi.get(packageId);
+  try {
+    await packagesApi.removeFile(packageId, fileId);
+    pkg.value = await packagesApi.get(packageId);
+    toast.success("File removed");
+  } catch (err) {
+    toast.error(err instanceof ApiError ? err.message : "Failed to remove file");
+  }
 }
 
 function downloadOwned(fileId: number, filename: string): void {
@@ -98,8 +107,14 @@ function downloadOwned(fileId: number, filename: string): void {
   fetch(`/api/packages/${packageId}/files/${fileId}/download`, {
     headers: token ? { Authorization: "Bearer " + token } : {},
   })
-    .then((response) => response.blob())
-    .then((blob) => triggerDownload(URL.createObjectURL(blob), filename));
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error("Download failed");
+      }
+      return response.blob();
+    })
+    .then((blob) => triggerDownload(URL.createObjectURL(blob), filename))
+    .catch(() => toast.error("Failed to download file"));
 }
 
 function triggerDownload(url: string, filename: string): void {
@@ -110,23 +125,23 @@ function triggerDownload(url: string, filename: string): void {
 }
 
 async function enableSharing(): Promise<void> {
-  error.value = null;
   try {
     share.value = await sharesApi.enable(packageId, visibility.value, parseEmails());
+    toast.success("Sharing enabled");
   } catch (err) {
-    error.value = err instanceof ApiError ? err.message : "Failed to enable sharing";
+    toast.error(err instanceof ApiError ? err.message : "Failed to enable sharing");
   }
 }
 
 async function updateSharing(): Promise<void> {
-  error.value = null;
   try {
     share.value = await sharesApi.update(packageId, {
       visibility: visibility.value,
       allowed_emails: parseEmails(),
     });
+    toast.success("Changes saved");
   } catch (err) {
-    error.value = err instanceof ApiError ? err.message : "Failed to update sharing";
+    toast.error(err instanceof ApiError ? err.message : "Failed to update sharing");
   }
 }
 
@@ -134,23 +149,42 @@ async function toggleEnabled(): Promise<void> {
   if (!share.value) {
     return;
   }
-  share.value = await sharesApi.update(packageId, {
-    is_enabled: !share.value.is_enabled,
-  });
+  const next = !share.value.is_enabled;
+  try {
+    share.value = await sharesApi.update(packageId, { is_enabled: next });
+    toast.success(next ? "Sharing resumed" : "Sharing paused");
+  } catch (err) {
+    toast.error(err instanceof ApiError ? err.message : "Failed to update sharing");
+  }
 }
 
 async function disableSharing(): Promise<void> {
-  await sharesApi.disable(packageId);
-  share.value = null;
+  try {
+    await sharesApi.disable(packageId);
+    share.value = null;
+    toast.success("Sharing disabled");
+  } catch (err) {
+    toast.error(err instanceof ApiError ? err.message : "Failed to disable sharing");
+  }
 }
 
 async function deletePackage(): Promise<void> {
-  await packagesApi.remove(packageId);
-  router.push("/dashboard");
+  try {
+    await packagesApi.remove(packageId);
+    toast.success("Package deleted");
+    router.push("/dashboard");
+  } catch (err) {
+    toast.error(err instanceof ApiError ? err.message : "Failed to delete package");
+  }
 }
 
-function copyLink(): void {
-  navigator.clipboard.writeText(shareLink.value);
+async function copyLink(): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(shareLink.value);
+    toast.success("Link copied to clipboard");
+  } catch {
+    toast.error("Couldn't copy the link");
+  }
 }
 
 onMounted(load);

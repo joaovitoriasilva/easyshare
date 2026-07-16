@@ -5,6 +5,7 @@ import { FileArchive, Plus, Share2 } from "lucide-vue-next";
 import { packagesApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { Package } from "@/api/types";
+import { useToastStore } from "@/stores/toast";
 import {
   Button,
   Card,
@@ -15,6 +16,8 @@ import {
   Input,
   Label,
 } from "@/components/ui";
+
+const toast = useToastStore();
 
 const packages = ref<Package[]>([]);
 const loading = ref(true);
@@ -38,6 +41,7 @@ async function load(): Promise<void> {
 
 async function create(): Promise<void> {
   if (!name.value.trim()) {
+    toast.warning("Package name is required");
     return;
   }
   creating.value = true;
@@ -47,8 +51,9 @@ async function create(): Promise<void> {
     name.value = "";
     description.value = "";
     showForm.value = false;
+    toast.success("Package created", { description: created.name });
   } catch (err) {
-    error.value = err instanceof ApiError ? err.message : "Failed to create package";
+    toast.error(err instanceof ApiError ? err.message : "Failed to create package");
   } finally {
     creating.value = false;
   }

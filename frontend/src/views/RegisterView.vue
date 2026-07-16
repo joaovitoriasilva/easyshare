@@ -3,6 +3,7 @@ import { ref } from "vue";
 import { useRouter, RouterLink } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { ApiError } from "@/api/client";
+import { useToastStore } from "@/stores/toast";
 import {
   Button,
   Card,
@@ -17,6 +18,7 @@ import {
 
 const auth = useAuthStore();
 const router = useRouter();
+const toast = useToastStore();
 
 const email = ref("");
 const username = ref("");
@@ -29,6 +31,7 @@ async function submit(): Promise<void> {
   loading.value = true;
   try {
     await auth.register(email.value, username.value, password.value);
+    toast.success("Account created");
     router.push("/dashboard");
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Registration failed";

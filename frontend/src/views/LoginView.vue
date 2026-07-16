@@ -3,6 +3,7 @@ import { ref } from "vue";
 import { useRoute, useRouter, RouterLink } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { ApiError } from "@/api/client";
+import { useToastStore } from "@/stores/toast";
 import {
   Button,
   Card,
@@ -18,6 +19,7 @@ import {
 const auth = useAuthStore();
 const router = useRouter();
 const route = useRoute();
+const toast = useToastStore();
 
 const identifier = ref("");
 const password = ref("");
@@ -29,6 +31,7 @@ async function submit(): Promise<void> {
   loading.value = true;
   try {
     await auth.login(identifier.value, password.value);
+    toast.success("Signed in");
     const redirect = (route.query.redirect as string) || "/dashboard";
     router.push(redirect);
   } catch (err) {
