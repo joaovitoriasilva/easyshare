@@ -1,0 +1,86 @@
+"""Tests for package CRUD and file upload/download."""
+
+from __future__ import annotations
+
+import io
+
+from fastapi.testclient import TestClient
+
+from tests.conftest import register_and_login
+
+
+def _create_package(client: TestClient, headers: dict[str, str]) -> int:
+    resp = client.post(
+        "/api/packages",
+        json={"name": "My Package", "description": "demo"},
+        headers=headers,
+    )
+    assert resp.status_code == 201
+    return resp.json()["id"]
+
+
+def test_create_and_list_packages(client: TestClient) -> None:
+    headers = register_and_login(client)
+    pkg_id = _create_package(client, headers)
+
+    listing = client.get("/api/packages", headers=headers)
+    assert listing.status_code == 200
+    assert [p["id"] for p in listing.json()] == [pkg_id]
+
+
+def test_package_requires_auth(client: TestClient) -> None:
+    assert client.get("/api/packages").status_code == 401
+
+
+def test_upload_and_download_file(client: TestClient) -> None:
+    headers = register_and_login(client)
+    pkg_id = _create_package(client, headers)
+
+    resp = client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("hello.txt", io.BytesIO(b"hello world"), "text/plain")},
+        headers=headers,
+    )
+    assert resp.status_code == 201
+    file_id = resp.json()["id"]
+    assert resp.json()["size"] == 11
+
+    download = client.get(
+        f"/api/packages/{pkg_id}/files/{file_id}/download", headers=headers
+    )
+    assert download.status_code == 200
+    assert download.content == b"hello world"
+
+
+def test_cannot_access_others_package(client: TestClient) -> None:
+    alice = register_and_login(client, "alice", "alice@example.com")
+    pkg_id = _create_package(client, alice)
+
+    bob = register_and_login(client, "bob", "bob@example.com")
+    resp = client.get(f"/api/packages/{pkg_id}", headers=bob)
+    assert resp.status_code == 404
+
+
+def test_delete_package_removes_files(client: TestClient) -> None:
+    headers = register_and_login(client)
+    pkg_id = _create_package(client, headers)
+    client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("a.txt", io.BytesIO(b"data"), "text/plain")},
+        headers=headers,
+    )
+    resp = client.delete(f"/api/packages/{pkg_id}", headers=headers)
+    assert resp.status_code == 200
+    assert client.get(f"/api/packages/{pkg_id}", headers=headers).status_code == 404
+
+
+def test_update_package(client: TestClient) -> None:
+    headers = register_and_login(client)
+    pkg_id = _create_package(client, headers)
+    resp = client.patch(
+        f"/api/packages/{pkg_id}",
+        json={"name": "Renamed"},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Renamed"
