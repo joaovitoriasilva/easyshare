@@ -94,18 +94,27 @@ def _files_payload(share: Share) -> list[PublicFile]:
     ]
 
 
-@router.get("/{token}", response_model=PublicShareRead)
-def view_share(token: str, db: DbSession) -> PublicShareRead:
-    """View share metadata. Files are hidden for restricted shares."""
-    share = _get_active_share(db, token)
-    requires_email = share.visibility == ShareVisibility.RESTRICTED
+def _public_share_read(
+    share: Share, *, reveal_files: bool, download_token: str | None = None
+) -> PublicShareRead:
+    """Build the public view of a share, optionally revealing its file list."""
     return PublicShareRead(
         token=share.token,
         package_name=share.package.name,
         package_description=share.package.description,
         visibility=share.visibility,
-        requires_email=requires_email,
-        files=[] if requires_email else _files_payload(share),
+        requires_email=share.visibility == ShareVisibility.RESTRICTED,
+        files=_files_payload(share) if reveal_files else [],
+        download_token=download_token,
+    )
+
+
+@router.get("/{token}", response_model=PublicShareRead)
+def view_share(token: str, db: DbSession) -> PublicShareRead:
+    """View share metadata. Files are hidden for restricted shares."""
+    share = _get_active_share(db, token)
+    return _public_share_read(
+        share, reveal_files=share.visibility != ShareVisibility.RESTRICTED
     )
 
 
@@ -127,15 +136,7 @@ def access_share(
         if share.visibility == ShareVisibility.RESTRICTED
         else None
     )
-    return PublicShareRead(
-        token=share.token,
-        package_name=share.package.name,
-        package_description=share.package.description,
-        visibility=share.visibility,
-        requires_email=share.visibility == ShareVisibility.RESTRICTED,
-        files=_files_payload(share),
-        download_token=download_token,
-    )
+    return _public_share_read(share, reveal_files=True, download_token=download_token)
 
 
 def _resolve_file(share: Share, file_id: int) -> PackageFile:

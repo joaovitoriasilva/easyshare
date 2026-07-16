@@ -81,6 +81,18 @@ The UI is served at http://localhost:8080 and the API at http://localhost:8000.
 
 ## Production notes
 
+### Production configuration guard
+
+`docker-compose.example.yml` sets `EASYSHARE_ENVIRONMENT: production`, which
+activates a startup guard that refuses to boot with an insecure secret
+(placeholder or shorter than 32 characters) or with debug enabled. The secret is
+a required Compose variable, so the stack will not start until you supply one:
+
+```bash
+EASYSHARE_SECRET_KEY="$(openssl rand -hex 32)" \
+  docker compose -f docker-compose.example.yml up --build
+```
+
 ### Trusted proxy headers
 
 The backend runs behind the nginx proxy and reads the real client IP from the

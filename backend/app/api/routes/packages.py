@@ -6,7 +6,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession, OwnedPackage
+from app.api.deps import CurrentUser, DbSession, OwnedFile, OwnedPackage
 from app.core.config import settings
 from app.models.models import Package, PackageFile
 from app.schemas.schemas import (
@@ -123,17 +123,8 @@ def upload_file(
 
 
 @router.get("/{package_id}/files/{file_id}/download")
-def download_owned_file(
-    file_id: int,
-    package: OwnedPackage,
-    db: DbSession,
-) -> FileResponse:
+def download_owned_file(record: OwnedFile) -> FileResponse:
     """Download a file from an owned package."""
-    record = db.get(PackageFile, file_id)
-    if record is None or record.package_id != package.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="File not found"
-        )
     return FileResponse(
         storage.path(record.storage_key),
         media_type=record.content_type,
@@ -142,17 +133,8 @@ def download_owned_file(
 
 
 @router.delete("/{package_id}/files/{file_id}", response_model=MessageResponse)
-def delete_file(
-    file_id: int,
-    package: OwnedPackage,
-    db: DbSession,
-) -> MessageResponse:
+def delete_file(record: OwnedFile, db: DbSession) -> MessageResponse:
     """Delete a single file from a package."""
-    record = db.get(PackageFile, file_id)
-    if record is None or record.package_id != package.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="File not found"
-        )
     storage.delete(record.storage_key)
     db.delete(record)
     db.commit()

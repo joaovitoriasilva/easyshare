@@ -2,7 +2,12 @@ services:
   backend:
     build: ./backend
     environment:
-      EASYSHARE_SECRET_KEY: ${EASYSHARE_SECRET_KEY:-please-change-me-in-production}
+      # Run in production mode so the startup guard enforces a strong secret and
+      # disabled debug, failing fast on insecure configuration.
+      EASYSHARE_ENVIRONMENT: production
+      # Required: Compose refuses to start if this is unset. Use a 32+ character
+      # random value, e.g. `export EASYSHARE_SECRET_KEY="$(openssl rand -hex 32)"`.
+      EASYSHARE_SECRET_KEY: ${EASYSHARE_SECRET_KEY:?set to a 32+ char random value, e.g. openssl rand -hex 32}
       EASYSHARE_DATABASE_URL: sqlite:////data/easyshare.db
       EASYSHARE_STORAGE_DIR: /data/storage
       EASYSHARE_CORS_ORIGINS: http://localhost:8080

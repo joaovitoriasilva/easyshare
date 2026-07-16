@@ -55,6 +55,15 @@ def _apply_emails(share: Share, emails: list[str]) -> None:
             share.allowed_emails.append(ShareAllowedEmail(email=email))
 
 
+def _require_restricted_has_emails(share: Share) -> None:
+    """Restricted shares must retain at least one allowed email."""
+    if share.visibility == ShareVisibility.RESTRICTED and not share.allowed_emails:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Restricted shares require at least one allowed email",
+        )
+
+
 @router.post("", response_model=ShareRead, status_code=status.HTTP_201_CREATED)
 def enable_share(
     payload: ShareCreate,
@@ -67,11 +76,6 @@ def enable_share(
             status_code=status.HTTP_409_CONFLICT,
             detail="Sharing is already enabled for this package",
         )
-    if payload.visibility == ShareVisibility.RESTRICTED and not payload.allowed_emails:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Restricted shares require at least one allowed email",
-        )
 
     share = Share(
         package_id=package.id,
@@ -80,6 +84,7 @@ def enable_share(
         is_enabled=True,
     )
     _apply_emails(share, [str(e) for e in payload.allowed_emails])
+    _require_restricted_has_emails(share)
     db.add(share)
     db.commit()
     db.refresh(share)
@@ -118,11 +123,7 @@ def update_share(
     if payload.allowed_emails is not None:
         _apply_emails(share, [str(e) for e in payload.allowed_emails])
 
-    if share.visibility == ShareVisibility.RESTRICTED and not share.allowed_emails:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Restricted shares require at least one allowed email",
-        )
+    _require_restricted_has_emails(share)
 
     db.commit()
     db.refresh(share)
