@@ -2,11 +2,33 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
 import secrets
 import shutil
 from pathlib import Path
 
 from app.core.config import settings
+
+# Upper bound for the readable filename component of a storage key, keeping the
+# on-disk path within both the ``storage_key`` column (255) and typical
+# filesystem per-component limits (NAME_MAX, usually 255 bytes).
+_MAX_READABLE_NAME = 150
+
+
+def _readable_name(file_id: int, filename: str) -> str:
+    """Build a collision-free, path-safe ``{file_id}_{filename}`` component.
+
+    The ``file_id`` prefix guarantees uniqueness (so two files sharing a name
+    never clash) and neutralises any residual ``..`` name. Path separators are
+    stripped defensively so the component can never escape its package
+    directory; :meth:`StorageService._resolve` remains the ultimate guard.
+    """
+    safe = filename.replace("/", "_").replace("\\", "_")
+    stem, ext = os.path.splitext(safe)
+    if len(stem) > _MAX_READABLE_NAME:
+        stem = stem[:_MAX_READABLE_NAME]
+    return f"{file_id}_{stem}{ext}"
 
 
 class FileTooLargeError(Exception):
@@ -38,6 +60,15 @@ class StorageService:
         """Return a unique, opaque storage key."""
         return secrets.token_hex(16)
 
+    def readable_key(self, package_id: int, file_id: int, filename: str) -> str:
+        """Return a human-readable ``{package_id}/{file_id}_{filename}`` key.
+
+        Used when ``obfuscate_storage_names`` is disabled so files stay
+        browsable on disk. The ``file_id`` makes the key unique, so the row
+        must be flushed (to assign its id) before calling.
+        """
+        return f"{package_id}/{_readable_name(file_id, filename)}"
+
     def save(
         self, storage_key: str, source: object, max_bytes: int | None = None
     ) -> int:
@@ -51,6 +82,8 @@ class StorageService:
             FileTooLargeError: If the stream exceeds ``max_bytes``.
         """
         target = self._resolve(storage_key)
+        # Readable storage keys nest files under a per-package subdirectory.
+        target.parent.mkdir(parents=True, exist_ok=True)
         size = 0
         try:
             with target.open("wb") as buffer:
@@ -76,10 +109,17 @@ class StorageService:
         return self._resolve(storage_key)
 
     def delete(self, storage_key: str) -> None:
-        """Delete a stored file if it exists."""
+        """Delete a stored file, pruning an emptied package subdirectory."""
         target = self._resolve(storage_key)
         if target.exists():
             target.unlink()
+        # Remove the now-empty package subdirectory left by readable storage
+        # keys; never touch the base directory itself.
+        parent = target.parent
+        if parent != self.base_dir.resolve():
+            # Only succeeds when the directory is empty; ignore otherwise.
+            with contextlib.suppress(OSError):
+                parent.rmdir()
 
     def reset(self) -> None:
         """Remove all stored files (used in tests)."""

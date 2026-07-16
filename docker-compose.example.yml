@@ -19,6 +19,10 @@ services:
       # limiting/logs/audit). Left at the default (127.0.0.1, i.e. trust
       # nothing external) when the container is reachable directly.
       # EASYSHARE_FORWARDED_ALLOW_IPS: "203.0.113.10"
+      # Store files under opaque random names on disk (true, default) or readable
+      # {package_id}/{file_id}_{filename} paths (false). The original filename is
+      # always kept in the database regardless.
+      # EASYSHARE_OBFUSCATE_STORAGE_NAMES=true
     volumes:
       - app-data:/data
     ports:

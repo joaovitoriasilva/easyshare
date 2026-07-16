@@ -5,7 +5,7 @@ Secure file & package sharing API built with **FastAPI**, **Pydantic v2**,
 
 ## Features
 
-- User registration & login with JWT access tokens (bcrypt-hashed passwords).
+- User registration & login with JWT access tokens (Argon2id-hashed passwords).
 - Packages containing one or more files (upload / download / delete).
 - Opt-in sharing: a package is only reachable once the owner enables sharing,
   which mints a cryptographically-random share token.

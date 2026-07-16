@@ -154,23 +154,37 @@ def upload_file(
 
     safe_filename = sanitize_upload_filename(file.filename)
 
-    storage_key = storage.generate_key()
+    # Persist the row first (without committing) so that, when obfuscation is
+    # disabled, the readable storage key can embed the file's database id. In
+    # obfuscated mode the provisional random key generated here is already the
+    # final one.
+    record = PackageFile(
+        package_id=package.id,
+        filename=safe_filename,
+        content_type=file.content_type or "application/octet-stream",
+        size=0,
+        storage_key=storage.generate_key(),
+    )
+    db.add(record)
+    db.flush()
+
+    if not settings.obfuscate_storage_names:
+        record.storage_key = storage.readable_key(
+            package.id, record.id, safe_filename
+        )
+
     try:
-        size = storage.save(storage_key, file.file, max_bytes=settings.max_file_size)
+        size = storage.save(
+            record.storage_key, file.file, max_bytes=settings.max_file_size
+        )
     except FileTooLargeError as exc:
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="File exceeds the maximum allowed size",
         ) from exc
 
-    record = PackageFile(
-        package_id=package.id,
-        filename=safe_filename,
-        content_type=file.content_type or "application/octet-stream",
-        size=size,
-        storage_key=storage_key,
-    )
-    db.add(record)
+    record.size = size
     db.commit()
     db.refresh(record)
     return record

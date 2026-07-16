@@ -7,6 +7,7 @@ import zipfile
 
 import pytest
 from app.core.config import settings
+from app.services.storage import storage
 from fastapi.testclient import TestClient
 
 from tests.conftest import register_and_login
@@ -97,6 +98,44 @@ def test_upload_and_download_file(client: TestClient) -> None:
     )
     assert download.status_code == 200
     assert download.content == b"hello world"
+
+
+def test_upload_uses_readable_names_when_obfuscation_disabled(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "obfuscate_storage_names", False)
+    headers = register_and_login(client)
+    pkg_id = _create_package(client, headers)
+
+    resp = client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("hello.txt", io.BytesIO(b"hello world"), "text/plain")},
+        headers=headers,
+    )
+    assert resp.status_code == 201
+    file_id = resp.json()["id"]
+
+    # The file is stored under a readable {package_id}/{file_id}_{name} path.
+    stored = storage.base_dir / str(pkg_id) / f"{file_id}_hello.txt"
+    assert stored.is_file()
+    assert stored.read_bytes() == b"hello world"
+
+    # Downloading still returns the original content.
+    download = client.get(
+        f"/api/packages/{pkg_id}/files/{file_id}/download", headers=headers
+    )
+    assert download.status_code == 200
+    assert download.content == b"hello world"
+
+    # Deleting the file prunes the now-empty package directory.
+    assert (
+        client.delete(
+            f"/api/packages/{pkg_id}/files/{file_id}", headers=headers
+        ).status_code
+        == 200
+    )
+    assert not stored.exists()
+    assert not (storage.base_dir / str(pkg_id)).exists()
 
 
 def test_cannot_access_others_package(client: TestClient) -> None:

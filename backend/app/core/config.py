@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     max_file_size: int = 100 * 1024 * 1024  # 100 MB per file
     max_files_per_package: int = 50
     max_archive_size: int = 5 * 1024 * 1024 * 1024  # 5 GiB per zip download
+    # When enabled (default) stored files are given opaque random names on disk
+    # so the filesystem reveals nothing about their origin or contents. Disable
+    # to store files under a readable ``{package_id}/{file_id}_{filename}`` path,
+    # which keeps them browsable on disk at the cost of exposing the original
+    # names. The original filename is always preserved in the database either
+    # way, so this only affects the on-disk layout.
+    obfuscate_storage_names: bool = True
 
     # Frontend (single-image deployment: the built Vue SPA is baked into the
     # backend image at this path and served by FastAPI itself; see

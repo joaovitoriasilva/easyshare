@@ -12,7 +12,7 @@ link and download all files, or just the ones they select, as a zip archive.
 | --------- | ----------------------------------------------------------------- |
 | Frontend  | TypeScript, Vue 3, Vite, Tailwind CSS, Reka UI, shadcn-vue        |
 | Backend   | Python, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic               |
-| Auth      | JWT access tokens, bcrypt password hashing                        |
+| Auth      | JWT access tokens, Argon2id password hashing                      |
 | Tests     | pytest (backend), Vitest (frontend)                               |
 | CI        | GitHub Actions (lint, type-check, tests, build, dependency audit) |
 
@@ -29,12 +29,15 @@ link and download all files, or just the ones they select, as a zip archive.
 
 ## Security by design
 
-- Passwords are hashed with bcrypt; plaintext is never stored or returned.
+- Passwords are hashed with Argon2id (memory-hard, no 72-byte input limit);
+  plaintext is never stored or returned.
 - Share tokens use `secrets.token_urlsafe` (unguessable).
 - Ownership is enforced on every package/file/share operation.
 - Restricted shares hide file listings until an authorised email is provided,
   and re-check the email on every download.
-- File storage keys are opaque and path-traversal is prevented.
+- Uploaded files are stored under opaque random names by default (configurable
+  via `EASYSHARE_OBFUSCATE_STORAGE_NAMES`); path traversal is prevented on every
+  access.
 - Input is validated with Pydantic v2; CORS origins are configurable.
 - CI runs `npm audit` and dependencies were checked against the GitHub
   Advisory Database.
@@ -151,6 +154,7 @@ running with Docker.
 | `EASYSHARE_MAX_FILE_SIZE`                | `104857600` (100 MB)                 | Maximum size, in bytes, allowed for a single uploaded file.                  |
 | `EASYSHARE_MAX_FILES_PER_PACKAGE`        | `50`                                  | Maximum number of files allowed in a single package.                        |
 | `EASYSHARE_MAX_ARCHIVE_SIZE`             | `5368709120` (5 GiB)                 | Maximum combined size, in bytes, of a zip download; larger selections are rejected with 413. |
+| `EASYSHARE_OBFUSCATE_STORAGE_NAMES`      | `true`                               | When `true`, stored files get opaque random names on disk. Set to `false` to store them under readable `{package_id}/{file_id}_{filename}` paths instead. The original filename is always kept in the database; only files uploaded after the change are affected. |
 | `EASYSHARE_CORS_ORIGINS`                 | `http://localhost:5173`              | Comma-separated list of allowed CORS origins.                               |
 | `EASYSHARE_RATE_LIMIT_ENABLED`           | `true`                               | Set to `false` to disable API rate limiting.                                |
 | `EASYSHARE_RATE_LIMIT_STORAGE_URI`       | `memory://`                         | Rate-limit counter storage backend URI (e.g. `memory://`, `redis://...`).   |
