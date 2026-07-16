@@ -26,7 +26,7 @@ function logout(): void {
 
 <template>
   <div class="min-h-screen bg-background">
-    <header class="border-b">
+    <header class="border-b bg-header">
       <div class="container flex h-16 items-center justify-between">
         <RouterLink
           to="/"
