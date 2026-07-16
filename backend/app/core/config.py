@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
     rate_limit_storage_uri: str = "memory://"
 
+    # Logging / observability
+    log_level: str = "INFO"
+    log_format: str = "console"  # "console" (dev) or "json" (production)
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_cors(cls, value: object) -> object:

@@ -17,6 +17,8 @@ services:
       # X-Forwarded-For from any peer is safe here. If you publish the backend
       # port, set this to the proxy's address instead of "*".
       EASYSHARE_FORWARDED_ALLOW_IPS: "*"
+      # Structured JSON logs for production log shippers.
+      EASYSHARE_LOG_FORMAT: json
     volumes:
       - backend-data:/data
     # Intentionally not published to the host: only the frontend container talks

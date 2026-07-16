@@ -23,8 +23,12 @@ limiter.enabled = False
 
 
 @pytest.fixture
-def client(tmp_path: Path) -> Generator[TestClient]:
-    """Yield a TestClient backed by an isolated in-memory DB and temp storage."""
+def db_sessionmaker(tmp_path: Path) -> Generator[sessionmaker]:
+    """Set up an isolated in-memory DB + temp storage; yield its session maker.
+
+    Exposing the session maker lets tests inspect persisted state (e.g. the
+    ``audit_log`` table) on the same engine the app writes to.
+    """
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -45,10 +49,16 @@ def client(tmp_path: Path) -> Generator[TestClient]:
     storage_module.storage.base_dir.mkdir(parents=True, exist_ok=True)
 
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
-        yield test_client
+    yield TestingSessionLocal
     app.dependency_overrides.clear()
     Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture
+def client(db_sessionmaker: sessionmaker) -> Generator[TestClient]:
+    """Yield a TestClient backed by the isolated DB and temp storage."""
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 def register_and_login(

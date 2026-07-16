@@ -12,6 +12,7 @@ from sqlalchemy import select
 from starlette.background import BackgroundTask
 
 from app.api.deps import DbSession
+from app.core.audit import record_event
 from app.core.config import settings
 from app.core.rate_limit import SENSITIVE, limiter
 from app.core.security import (
@@ -55,16 +56,16 @@ def _authorize_email(share: Share, email: str | None) -> None:
         )
 
 
-def _authorize_download(share: Share, access_token: str | None) -> None:
-    """Authorize a download request for a share.
+def _authorize_download(share: Share, access_token: str | None) -> str | None:
+    """Authorize a download request, returning the authorised email (if any).
 
-    Public shares are always downloadable. Restricted shares require the opaque,
-    short-lived token issued by :func:`access_share`; the email it certifies is
-    re-checked against the current allow-list so access can be revoked by
-    removing the address.
+    Public shares are always downloadable (returns ``None``). Restricted shares
+    require the opaque, short-lived token issued by :func:`access_share`; the
+    email it certifies is re-checked against the current allow-list so access
+    can be revoked by removing the address.
     """
     if share.visibility == ShareVisibility.PUBLIC:
-        return
+        return None
     email = (
         decode_share_access_token(access_token, share.token)
         if access_token
@@ -81,6 +82,7 @@ def _authorize_download(share: Share, access_token: str | None) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This email is not allowed to access the share",
         )
+    return email
 
 
 def _files_payload(share: Share) -> list[PublicFile]:
@@ -131,7 +133,25 @@ def access_share(
     """
     share = _get_active_share(db, token)
     email = str(payload.email)
-    _authorize_email(share, email)
+    try:
+        _authorize_email(share, email)
+    except HTTPException as exc:
+        record_event(
+            db,
+            "share.access.denied",
+            request=request,
+            actor=email,
+            target=f"share:{token[:8]}",
+            detail={"status": exc.status_code},
+        )
+        raise
+    record_event(
+        db,
+        "share.access.granted",
+        request=request,
+        actor=email,
+        target=f"share:{token[:8]}",
+    )
     download_token = (
         create_share_access_token(share.token, email.strip().lower())
         if share.visibility == ShareVisibility.RESTRICTED
@@ -154,12 +174,31 @@ def download_shared_file(
     token: str,
     file_id: int,
     db: DbSession,
+    request: Request,
     access: str | None = Query(default=None),
 ) -> FileResponse:
     """Download a single file from a share."""
     share = _get_active_share(db, token)
-    _authorize_download(share, access)
+    try:
+        email = _authorize_download(share, access)
+    except HTTPException as exc:
+        record_event(
+            db,
+            "share.download.denied",
+            request=request,
+            target=f"share:{token[:8]}",
+            detail={"status": exc.status_code, "file_id": file_id},
+        )
+        raise
     record = _resolve_file(share, file_id)
+    record_event(
+        db,
+        "share.download",
+        request=request,
+        actor=email,
+        target=f"share:{token[:8]}",
+        detail={"file_id": file_id, "filename": record.filename},
+    )
     return FileResponse(
         storage.path(record.storage_key),
         media_type=record.content_type,
@@ -171,6 +210,7 @@ def download_shared_file(
 def download_shared_archive(
     token: str,
     db: DbSession,
+    request: Request,
     access: str | None = Query(default=None),
     file_ids: list[int] | None = Query(default=None),
 ) -> FileResponse:
@@ -182,7 +222,17 @@ def download_shared_archive(
     memory) and streamed back, then removed once the response is sent.
     """
     share = _get_active_share(db, token)
-    _authorize_download(share, access)
+    try:
+        email = _authorize_download(share, access)
+    except HTTPException as exc:
+        record_event(
+            db,
+            "share.download.denied",
+            request=request,
+            target=f"share:{token[:8]}",
+            detail={"status": exc.status_code},
+        )
+        raise
 
     if file_ids:
         selected = [f for f in share.package.files if f.id in set(file_ids)]
@@ -200,6 +250,15 @@ def download_shared_archive(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="The selected files exceed the maximum archive size",
         )
+
+    record_event(
+        db,
+        "share.download",
+        request=request,
+        actor=email,
+        target=f"share:{token[:8]}",
+        detail={"file_count": len(selected), "archive": True},
+    )
 
     tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
     tmp_path = tmp.name

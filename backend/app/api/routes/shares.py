@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 
 from app.api.deps import DbSession, OwnedPackage
+from app.core.audit import record_event
 from app.core.security import generate_share_token
 from app.models.models import Share, ShareAllowedEmail, ShareVisibility
 from app.schemas.schemas import (
@@ -69,6 +70,7 @@ def enable_share(
     payload: ShareCreate,
     package: OwnedPackage,
     db: DbSession,
+    request: Request,
 ) -> ShareRead:
     """Enable sharing for a package, generating a valid share id (token)."""
     if package.share is not None:
@@ -88,6 +90,14 @@ def enable_share(
     db.add(share)
     db.commit()
     db.refresh(share)
+    record_event(
+        db,
+        "share.enable",
+        request=request,
+        actor=f"user:{package.owner_id}",
+        target=f"package:{package.id}",
+        detail={"visibility": share.visibility.value},
+    )
     return _serialize(share)
 
 
@@ -107,6 +117,7 @@ def update_share(
     payload: ShareUpdate,
     package: OwnedPackage,
     db: DbSession,
+    request: Request,
 ) -> ShareRead:
     """Update visibility, enabled state or allowed emails."""
     share = package.share
@@ -127,11 +138,20 @@ def update_share(
 
     db.commit()
     db.refresh(share)
+    record_event(
+        db,
+        "share.update",
+        request=request,
+        actor=f"user:{package.owner_id}",
+        target=f"package:{package.id}",
+    )
     return _serialize(share)
 
 
 @router.delete("", response_model=MessageResponse)
-def disable_share(package: OwnedPackage, db: DbSession) -> MessageResponse:
+def disable_share(
+    package: OwnedPackage, db: DbSession, request: Request
+) -> MessageResponse:
     """Disable sharing and remove the share link for a package."""
     if package.share is None:
         raise HTTPException(
@@ -140,4 +160,11 @@ def disable_share(package: OwnedPackage, db: DbSession) -> MessageResponse:
         )
     db.delete(package.share)
     db.commit()
+    record_event(
+        db,
+        "share.disable",
+        request=request,
+        actor=f"user:{package.owner_id}",
+        target=f"package:{package.id}",
+    )
     return MessageResponse(detail="Sharing disabled")

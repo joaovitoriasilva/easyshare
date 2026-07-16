@@ -11,7 +11,11 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.routes import auth, packages, public, shares
 from app.core.config import settings
+from app.core.logging import configure_logging
+from app.core.middleware import RequestContextMiddleware
 from app.core.rate_limit import limiter, rate_limit_exceeded_handler
+
+configure_logging()
 
 app = FastAPI(
     title=settings.app_name,
@@ -35,8 +39,10 @@ def handle_file_validation_error(
     )
 
 
-# Rate limiting is added before CORS so CORS stays the outermost middleware and
-# 429 responses still carry CORS headers.
+# Middleware runs outermost-first (reverse registration order). RequestContext
+# is registered last so it wraps everything — every response gets a request id
+# and one access-log line — while CORS stays outside SlowAPI so 429 responses
+# still carry CORS headers.
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -47,6 +53,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestContextMiddleware)
 
 api_prefix = "/api"
 app.include_router(auth.router, prefix=api_prefix)

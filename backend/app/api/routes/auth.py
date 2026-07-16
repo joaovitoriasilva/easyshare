@@ -9,6 +9,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import or_, select
 
 from app.api.deps import CurrentUser, DbSession
+from app.core.audit import record_event
 from app.core.config import settings
 from app.core.rate_limit import SENSITIVE, limiter
 from app.core.security import create_access_token, hash_password, verify_password
@@ -51,6 +52,7 @@ def register(request: Request, payload: UserCreate, db: DbSession) -> User:
     db.add(user)
     db.commit()
     db.refresh(user)
+    record_event(db, "user.register", request=request, actor=f"user:{user.id}")
     return user
 
 
@@ -69,16 +71,19 @@ def login(
         )
     )
     if user is None or not verify_password(form_data.password, user.hashed_password):
+        record_event(db, "login.failure", request=request, actor=identifier)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     if not user.is_active:
+        record_event(db, "login.blocked", request=request, actor=f"user:{user.id}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive"
         )
     token = create_access_token(user.id)
+    record_event(db, "login.success", request=request, actor=f"user:{user.id}")
     return Token(access_token=token)
 
 

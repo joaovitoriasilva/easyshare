@@ -128,3 +128,20 @@ class ShareAllowedEmail(Base):
     email: Mapped[str] = mapped_column(String(320), index=True)
 
     share: Mapped[Share] = relationship(back_populates="allowed_emails")
+
+
+class AuditEvent(Base):
+    """An append-only record of a security-relevant action."""
+
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, index=True
+    )
+    action: Mapped[str] = mapped_column(String(64), index=True)
+    actor: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    target: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    client_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
