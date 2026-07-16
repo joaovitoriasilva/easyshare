@@ -13,8 +13,9 @@ from app.core.logging import reset_request_id, set_request_id
 
 logger = logging.getLogger("easyshare.access")
 
-# Liveness probes are hit constantly; logging them adds noise without value.
-_QUIET_PATHS = frozenset({"/api/health"})
+# Liveness/readiness probes are hit constantly; logging them adds noise without
+# value.
+_QUIET_PATHS = frozenset({"/api/health", "/api/ready"})
 
 
 class RequestContextMiddleware:

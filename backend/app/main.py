@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from safeuploads import FileValidationError
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
+from app.api.deps import DbSession
 from app.api.routes import admin, audit, auth, packages, public, shares
 from app.core.config import settings
 from app.core.logging import configure_logging
@@ -66,5 +69,18 @@ app.include_router(admin.router, prefix=api_prefix)
 
 @app.get("/api/health", tags=["health"])
 def health() -> dict[str, str]:
-    """Simple liveness probe."""
+    """Simple liveness probe: process is up. Does not check dependencies."""
     return {"status": "ok"}
+
+
+@app.get("/api/ready", tags=["health"])
+def ready(db: DbSession) -> dict[str, str]:
+    """Readiness probe: the app can actually serve traffic (DB reachable)."""
+    try:
+        db.execute(text("SELECT 1"))
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database unavailable",
+        ) from exc
+    return {"status": "ready"}
