@@ -7,10 +7,18 @@ services:
       EASYSHARE_STORAGE_DIR: /data/storage
       EASYSHARE_CORS_ORIGINS: http://localhost:8080
       EASYSHARE_ALLOW_REGISTRATION: "true"
+      # The backend is only reachable through the frontend proxy on the internal
+      # compose network (it is not published to the host), so trusting
+      # X-Forwarded-For from any peer is safe here. If you publish the backend
+      # port, set this to the proxy's address instead of "*".
+      EASYSHARE_FORWARDED_ALLOW_IPS: "*"
     volumes:
       - backend-data:/data
-    ports:
-      - "8000:8000"
+    # Intentionally not published to the host: only the frontend container talks
+    # to the backend over the compose network. This prevents direct access and
+    # X-Forwarded-For spoofing that could bypass IP-based rate limiting.
+    expose:
+      - "8000"
 
   frontend:
     build: ./frontend

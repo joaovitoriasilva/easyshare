@@ -15,8 +15,12 @@ RUN pip install --no-cache-dir -e .
 
 COPY . .
 
+RUN chmod +x docker-entrypoint.sh
+
 EXPOSE 8000
 
-# Apply migrations then start the API. --proxy-headers makes uvicorn trust the
-# X-Forwarded-For from the nginx proxy so rate limiting keys on the real client.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"]
+# The entrypoint applies migrations then launches uvicorn. Which proxy IPs are
+# trusted for X-Forwarded-For is controlled by EASYSHARE_FORWARDED_ALLOW_IPS
+# (default 127.0.0.1), so a directly-reachable backend cannot be tricked into
+# trusting a spoofed client IP.
+ENTRYPOINT ["./docker-entrypoint.sh"]

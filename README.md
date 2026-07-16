@@ -81,17 +81,27 @@ The UI is served at http://localhost:8080 and the API at http://localhost:8000.
 
 ## Production notes
 
-The backend starts uvicorn with `--proxy-headers --forwarded-allow-ips='*'` so
-it trusts the `X-Forwarded-For` header set by the nginx proxy. This is what lets
-rate limiting and request logs see the real client IP instead of the proxy's.
+### Trusted proxy headers
 
-**Caveat:** `--forwarded-allow-ips='*'` trusts that header from _any_ immediate
-peer, so it is only safe when the backend is reachable **only** through nginx.
-The default `docker-compose.yml` publishes the backend on `8000:8000` for
-convenience — in production, remove that port mapping (or bind it to
-`127.0.0.1:8000:8000`) so clients cannot reach uvicorn directly and spoof
-`X-Forwarded-For` to bypass IP-based rate limiting. Alternatively, replace `'*'`
-with the proxy's actual network range (e.g. the Docker subnet).
+The backend runs behind the nginx proxy and reads the real client IP from the
+`X-Forwarded-For` header (so rate limiting and logs see the client, not the
+proxy). uvicorn only honours that header from the addresses listed in
+`EASYSHARE_FORWARDED_ALLOW_IPS` (default `127.0.0.1`), which the container
+entrypoint passes to `--forwarded-allow-ips`.
+
+Because a trusted header can be spoofed by anyone able to reach uvicorn
+directly, `docker-compose.example.yml` does **not** publish the backend port —
+the frontend container reaches it over the internal compose network — and sets
+`EASYSHARE_FORWARDED_ALLOW_IPS: "*"` (safe precisely because the port is not
+reachable from outside). If you deliberately publish the backend port, set
+`EASYSHARE_FORWARDED_ALLOW_IPS` to your proxy's address instead of `*`.
+
+### Security headers
+
+`frontend/nginx.conf` sets `X-Content-Type-Options`, `X-Frame-Options`,
+`Referrer-Policy` and a `Content-Security-Policy` on every response. Enable the
+commented-out `Strict-Transport-Security` (HSTS) header once the site is served
+exclusively over HTTPS.
 
 ## Environment variables
 
@@ -104,9 +114,11 @@ running with Docker.
 | Variable                                | Default                            | Description                                                                 |
 | ---------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------- |
 | `EASYSHARE_SECRET_KEY`                   | `change-me-in-production-this-is-not-secure` | Secret used to sign JWT access tokens. **Must** be overridden with a long, random value in production (e.g. `openssl rand -hex 32`). |
+| `EASYSHARE_APP_NAME`                     | `EasyShare`                         | Human-readable application name.                                            |
 | `EASYSHARE_ENVIRONMENT`                  | `development`                       | Deployment environment name (e.g. `development`, `production`).             |
 | `EASYSHARE_DEBUG`                        | `false`                              | Enables debug mode when set to `true`.                                      |
 | `EASYSHARE_ACCESS_TOKEN_EXPIRE_MINUTES`  | `1440`                               | Lifetime of JWT access tokens, in minutes.                                   |
+| `EASYSHARE_SHARE_ACCESS_TOKEN_EXPIRE_MINUTES` | `30`                          | Lifetime, in minutes, of the token authorising restricted-share downloads.  |
 | `EASYSHARE_ALGORITHM`                    | `HS256`                              | JWT signing algorithm.                                                      |
 | `EASYSHARE_ALLOW_REGISTRATION`           | `true`                               | Set to `false` to disable new user sign-ups (`POST /api/auth/register`); existing users can still log in. |
 | `EASYSHARE_DATABASE_URL`                 | `sqlite:///./easyshare.db`           | SQLAlchemy database URL. Use a `postgresql+psycopg://...` URL in production. |
@@ -114,6 +126,9 @@ running with Docker.
 | `EASYSHARE_MAX_FILE_SIZE`                | `104857600` (100 MB)                 | Maximum size, in bytes, allowed for a single uploaded file.                  |
 | `EASYSHARE_MAX_FILES_PER_PACKAGE`        | `50`                                  | Maximum number of files allowed in a single package.                        |
 | `EASYSHARE_CORS_ORIGINS`                 | `http://localhost:5173`              | Comma-separated list of allowed CORS origins.                               |
+| `EASYSHARE_RATE_LIMIT_ENABLED`           | `true`                               | Set to `false` to disable API rate limiting.                                |
+| `EASYSHARE_RATE_LIMIT_STORAGE_URI`       | `memory://`                         | Rate-limit counter storage backend URI (e.g. `memory://`, `redis://...`).   |
+| `EASYSHARE_FORWARDED_ALLOW_IPS`          | `127.0.0.1`                          | Comma-separated reverse-proxy IPs whose `X-Forwarded-For` uvicorn trusts. Read by the Docker entrypoint, so it must be a real environment variable (e.g. set in Compose), not only in `backend/.env`. Use `*` only when the backend port is not publicly reachable. |
 
 When running locally, edit `backend/.env` directly (it is loaded automatically
 by the backend on startup) or export the variables in your shell before
