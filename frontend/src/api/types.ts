@@ -53,4 +53,5 @@ export interface PublicShare {
   visibility: Visibility;
   requires_email: boolean;
   files: PublicFile[];
+  download_token?: string | null;
 }

@@ -37,6 +37,8 @@ class Settings(BaseSettings):
         description="Secret used to sign JWT access tokens.",
     )
     access_token_expire_minutes: int = 60 * 24
+    # Lifetime of the opaque token that authorises restricted-share downloads.
+    share_access_token_expire_minutes: int = 30
     algorithm: str = "HS256"
     allow_registration: bool = True
 

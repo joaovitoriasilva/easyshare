@@ -23,13 +23,14 @@ describe("publicApi url builders", () => {
     expect(url).toBe("/api/s/tok/download?file_ids=1&file_ids=2");
   });
 
-  it("omits the query when no files or email are given", () => {
+  it("omits the query when no files or token are given", () => {
     expect(publicApi.downloadUrl("tok", [], null)).toBe("/api/s/tok/download");
   });
 
-  it("includes the email for restricted downloads", () => {
-    const url = publicApi.fileUrl("tok", 5, "a@b.com");
-    expect(url).toContain("email=a%40b.com");
+  it("includes the access token for restricted downloads", () => {
+    const url = publicApi.fileUrl("tok", 5, "signed.jwt.token");
+    expect(url).toContain("access=signed.jwt.token");
+    expect(url).not.toContain("email");
     expect(url).toContain("/api/s/tok/files/5/download");
   });
 });

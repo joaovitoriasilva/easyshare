@@ -102,21 +102,21 @@ export const publicApi = {
       auth: false,
     });
   },
-  downloadUrl(token: string, fileIds: number[], email: string | null): string {
+  downloadUrl(token: string, fileIds: number[], accessToken: string | null): string {
     const params = new URLSearchParams();
     for (const id of fileIds) {
       params.append("file_ids", String(id));
     }
-    if (email) {
-      params.set("email", email);
+    if (accessToken) {
+      params.set("access", accessToken);
     }
     const query = params.toString();
     return `/api/s/${token}/download${query ? `?${query}` : ""}`;
   },
-  fileUrl(token: string, fileId: number, email: string | null): string {
+  fileUrl(token: string, fileId: number, accessToken: string | null): string {
     const params = new URLSearchParams();
-    if (email) {
-      params.set("email", email);
+    if (accessToken) {
+      params.set("access", accessToken);
     }
     const query = params.toString();
     return `/api/s/${token}/files/${fileId}/download${query ? `?${query}` : ""}`;

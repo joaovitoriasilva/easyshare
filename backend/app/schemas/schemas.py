@@ -120,6 +120,9 @@ class PublicShareRead(BaseModel):
     visibility: ShareVisibility
     requires_email: bool
     files: list[PublicFile]
+    # Opaque, short-lived credential returned by ``/access`` for restricted
+    # shares; supplied on download requests in place of the recipient's email.
+    download_token: str | None = None
 
 
 class ShareAccessRequest(BaseModel):

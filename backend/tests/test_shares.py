@@ -172,7 +172,7 @@ def test_download_selected_files_as_zip(client: TestClient) -> None:
     assert len(archive_all.namelist()) == 2
 
 
-def test_restricted_download_requires_valid_email(client: TestClient) -> None:
+def test_restricted_download_requires_access_token(client: TestClient) -> None:
     headers = register_and_login(client)
     pkg_id = _package_with_files(client, headers)
     token = client.post(
@@ -181,29 +181,117 @@ def test_restricted_download_requires_valid_email(client: TestClient) -> None:
         headers=headers,
     ).json()["token"]
 
-    files = client.post(
+    unlocked = client.post(
         f"/api/s/{token}/access", json={"email": "ok@example.com"}
-    ).json()["files"]
-    file_id = files[0]["id"]
+    ).json()
+    file_id = unlocked["files"][0]["id"]
+    access = unlocked["download_token"]
+    assert access
 
-    # No email -> unauthorized.
+    # No token -> unauthorized.
     assert (
         client.get(f"/api/s/{token}/files/{file_id}/download").status_code == 401
     )
-    # Wrong email -> forbidden.
+    # Garbage token -> unauthorized.
     assert (
         client.get(
             f"/api/s/{token}/files/{file_id}/download",
-            params={"email": "no@example.com"},
+            params={"access": "not-a-real-token"},
+        ).status_code
+        == 401
+    )
+    # Valid token -> ok, for both the single file and the archive.
+    assert (
+        client.get(
+            f"/api/s/{token}/files/{file_id}/download",
+            params={"access": access},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.get(
+            f"/api/s/{token}/download", params={"access": access}
+        ).status_code
+        == 200
+    )
+
+    # The email is never exposed in the download URL; the raw email is rejected.
+    assert (
+        client.get(
+            f"/api/s/{token}/files/{file_id}/download",
+            params={"access": "ok@example.com"},
+        ).status_code
+        == 401
+    )
+
+
+def test_share_access_token_is_scoped_to_its_share(client: TestClient) -> None:
+    """A token minted for one share must not unlock another."""
+    headers = register_and_login(client)
+    pkg_a = _package_with_files(client, headers)
+    pkg_b = _package_with_files(client, headers)
+    token_a = client.post(
+        f"/api/packages/{pkg_a}/share",
+        json={"visibility": "restricted", "allowed_emails": ["ok@example.com"]},
+        headers=headers,
+    ).json()["token"]
+    token_b = client.post(
+        f"/api/packages/{pkg_b}/share",
+        json={"visibility": "restricted", "allowed_emails": ["ok@example.com"]},
+        headers=headers,
+    ).json()["token"]
+
+    access_a = client.post(
+        f"/api/s/{token_a}/access", json={"email": "ok@example.com"}
+    ).json()["download_token"]
+    file_b = client.post(
+        f"/api/s/{token_b}/access", json={"email": "ok@example.com"}
+    ).json()["files"][0]["id"]
+
+    # Share A's token cannot download share B's file.
+    assert (
+        client.get(
+            f"/api/s/{token_b}/files/{file_b}/download",
+            params={"access": access_a},
+        ).status_code
+        == 401
+    )
+
+
+def test_removing_email_revokes_existing_access_token(client: TestClient) -> None:
+    """Access is re-checked at download time, so removing an email revokes it."""
+    headers = register_and_login(client)
+    pkg_id = _package_with_files(client, headers)
+    token = client.post(
+        f"/api/packages/{pkg_id}/share",
+        json={
+            "visibility": "restricted",
+            "allowed_emails": ["ok@example.com", "keep@example.com"],
+        },
+        headers=headers,
+    ).json()["token"]
+
+    unlocked = client.post(
+        f"/api/s/{token}/access", json={"email": "ok@example.com"}
+    ).json()
+    file_id = unlocked["files"][0]["id"]
+    access = unlocked["download_token"]
+
+    # Owner removes the recipient's address from the allow-list.
+    client.patch(
+        f"/api/packages/{pkg_id}/share",
+        json={"allowed_emails": ["keep@example.com"]},
+        headers=headers,
+    )
+
+    # The previously issued token is now forbidden.
+    assert (
+        client.get(
+            f"/api/s/{token}/files/{file_id}/download",
+            params={"access": access},
         ).status_code
         == 403
     )
-    # Valid email -> ok.
-    ok = client.get(
-        f"/api/s/{token}/files/{file_id}/download",
-        params={"email": "ok@example.com"},
-    )
-    assert ok.status_code == 200
 
 
 def test_cannot_share_others_package(client: TestClient) -> None:

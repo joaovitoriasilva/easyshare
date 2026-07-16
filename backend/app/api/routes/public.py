@@ -13,6 +13,10 @@ from starlette.background import BackgroundTask
 
 from app.api.deps import DbSession
 from app.core.rate_limit import SENSITIVE, limiter
+from app.core.security import (
+    create_share_access_token,
+    decode_share_access_token,
+)
 from app.models.models import PackageFile, Share, ShareVisibility
 from app.schemas.schemas import (
     PublicFile,
@@ -41,6 +45,34 @@ def _authorize_email(share: Share, email: str | None) -> None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="This share requires a valid email address",
+        )
+    allowed = {entry.email for entry in share.allowed_emails}
+    if email.strip().lower() not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This email is not allowed to access the share",
+        )
+
+
+def _authorize_download(share: Share, access_token: str | None) -> None:
+    """Authorize a download request for a share.
+
+    Public shares are always downloadable. Restricted shares require the opaque,
+    short-lived token issued by :func:`access_share`; the email it certifies is
+    re-checked against the current allow-list so access can be revoked by
+    removing the address.
+    """
+    if share.visibility == ShareVisibility.PUBLIC:
+        return
+    email = (
+        decode_share_access_token(access_token, share.token)
+        if access_token
+        else None
+    )
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This share requires a valid access token",
         )
     allowed = {entry.email for entry in share.allowed_emails}
     if email.strip().lower() not in allowed:
@@ -82,9 +114,19 @@ def view_share(token: str, db: DbSession) -> PublicShareRead:
 def access_share(
     request: Request, token: str, payload: ShareAccessRequest, db: DbSession
 ) -> PublicShareRead:
-    """Unlock a restricted share by providing an allowed email address."""
+    """Unlock a restricted share by providing an allowed email address.
+
+    Returns a short-lived ``download_token`` that the recipient supplies on
+    subsequent download requests, so their email never travels in a URL.
+    """
     share = _get_active_share(db, token)
-    _authorize_email(share, str(payload.email))
+    email = str(payload.email)
+    _authorize_email(share, email)
+    download_token = (
+        create_share_access_token(share.token, email.strip().lower())
+        if share.visibility == ShareVisibility.RESTRICTED
+        else None
+    )
     return PublicShareRead(
         token=share.token,
         package_name=share.package.name,
@@ -92,6 +134,7 @@ def access_share(
         visibility=share.visibility,
         requires_email=share.visibility == ShareVisibility.RESTRICTED,
         files=_files_payload(share),
+        download_token=download_token,
     )
 
 
@@ -109,11 +152,11 @@ def download_shared_file(
     token: str,
     file_id: int,
     db: DbSession,
-    email: str | None = Query(default=None),
+    access: str | None = Query(default=None),
 ) -> FileResponse:
     """Download a single file from a share."""
     share = _get_active_share(db, token)
-    _authorize_email(share, email)
+    _authorize_download(share, access)
     record = _resolve_file(share, file_id)
     return FileResponse(
         storage.path(record.storage_key),
@@ -126,7 +169,7 @@ def download_shared_file(
 def download_shared_archive(
     token: str,
     db: DbSession,
-    email: str | None = Query(default=None),
+    access: str | None = Query(default=None),
     file_ids: list[int] | None = Query(default=None),
 ) -> FileResponse:
     """Download all files, or a selected subset, as a zip archive.
@@ -137,7 +180,7 @@ def download_shared_archive(
     memory) and streamed back, then removed once the response is sent.
     """
     share = _get_active_share(db, token)
-    _authorize_email(share, email)
+    _authorize_download(share, access)
 
     if file_ids:
         selected = [f for f in share.package.files if f.id in set(file_ids)]

@@ -13,6 +13,10 @@ from app.core.config import settings
 
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+# Marks a token as a restricted-share download credential rather than a user
+# access token, so the two can never be used interchangeably.
+_SHARE_ACCESS_SCOPE = "share-access"
+
 
 def hash_password(password: str) -> str:
     """Hash a plaintext password using bcrypt."""
@@ -47,6 +51,51 @@ def decode_access_token(token: str) -> str | None:
     if subject is None:
         return None
     return str(subject)
+
+
+def create_share_access_token(
+    share_token: str, email: str, expires_delta: timedelta | None = None
+) -> str:
+    """Create a short-lived token proving ``email`` may access ``share_token``.
+
+    Issued by the restricted-share ``/access`` endpoint so download requests can
+    carry an opaque, expiring credential instead of the recipient's email
+    address, which would otherwise leak via URLs, access logs and ``Referer``
+    headers.
+    """
+    expire = datetime.now(UTC) + (
+        expires_delta
+        or timedelta(minutes=settings.share_access_token_expire_minutes)
+    )
+    payload: dict[str, Any] = {
+        "scope": _SHARE_ACCESS_SCOPE,
+        "sub": share_token,
+        "email": email,
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
+def decode_share_access_token(token: str, share_token: str) -> str | None:
+    """Return the authorised email carried by a valid share-access token.
+
+    Returns ``None`` unless the token is correctly signed, unexpired, carries the
+    share-access scope and was issued for ``share_token``.
+    """
+    try:
+        payload = jwt.decode(
+            token, settings.secret_key, algorithms=[settings.algorithm]
+        )
+    except JWTError:
+        return None
+    if payload.get("scope") != _SHARE_ACCESS_SCOPE:
+        return None
+    if payload.get("sub") != share_token:
+        return None
+    email = payload.get("email")
+    if not isinstance(email, str):
+        return None
+    return email
 
 
 def generate_share_token() -> str:

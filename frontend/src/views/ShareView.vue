@@ -33,9 +33,9 @@ const allSelected = computed(
   () => files.value.length > 0 && selected.value.size === files.value.length,
 );
 const hasSelection = computed(() => selected.value.size > 0);
-const usedEmail = computed(() =>
-  share.value?.visibility === "restricted" ? email.value : null,
-);
+// Opaque, short-lived token returned by /access for restricted shares; used in
+// place of the recipient's email so the email never appears in a download URL.
+const downloadToken = ref<string | null>(null);
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -54,6 +54,7 @@ async function unlock(): Promise<void> {
   error.value = null;
   try {
     share.value = await publicApi.access(token, email.value);
+    downloadToken.value = share.value.download_token ?? null;
     unlocked.value = true;
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Access denied";
@@ -77,13 +78,13 @@ function toggleAll(): void {
 }
 
 function downloadFile(id: number, filename: string): void {
-  triggerDownload(publicApi.fileUrl(token, id, usedEmail.value), filename);
+  triggerDownload(publicApi.fileUrl(token, id, downloadToken.value), filename);
 }
 
 function downloadSelected(): void {
   const ids = hasSelection.value ? Array.from(selected.value) : [];
   triggerDownload(
-    publicApi.downloadUrl(token, ids, usedEmail.value),
+    publicApi.downloadUrl(token, ids, downloadToken.value),
     `${share.value?.package_name ?? "package"}.zip`,
   );
 }
