@@ -2,16 +2,30 @@
 # image, which serves both the API and the frontend itself (see
 # backend/app/core/static.py) — no separate nginx/frontend container.
 
+# Stage 0: pinned uv (by digest), used only to export a hash-locked
+# requirements file from uv.lock so the runtime install is fully reproducible
+# and every downloaded artifact is verified against the lock.
+FROM ghcr.io/astral-sh/uv:0.11.18@sha256:78bc42400d77b0678ba95765305c826652ed5431f399257271dda681d0318f03 AS uv-dist
+
 # Stage 1: build the frontend
-FROM node:22-alpine AS frontend-build
+FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS frontend-build
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-# Stage 2: backend + bundled frontend
-FROM python:3.13-slim
+# Stage 2: resolve production dependencies from the lock into a hash-pinned
+# requirements.txt (dev group excluded; the project itself is excluded because
+# it is run from source, not installed as a wheel).
+FROM python:3.13-slim@sha256:6771159cd4fa5d9bba1258caf0b82e6b73458c694d178ad97c5e925c2d0e1a91 AS requirements
+WORKDIR /tmp/backend
+COPY --from=uv-dist /uv /uvx /usr/local/bin/
+COPY backend/pyproject.toml backend/uv.lock ./
+RUN uv export --no-emit-project --no-dev -o requirements.txt
+
+# Stage 3: backend + bundled frontend
+FROM python:3.13-slim@sha256:6771159cd4fa5d9bba1258caf0b82e6b73458c694d178ad97c5e925c2d0e1a91
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -23,8 +37,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY backend/pyproject.toml ./
-RUN pip install --no-cache-dir -e .
+# Install exactly the locked dependencies, verifying every downloaded artifact
+# against the hashes exported from uv.lock (supply-chain integrity +
+# reproducible builds).
+COPY --from=requirements /tmp/backend/requirements.txt ./
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir --require-hashes -r requirements.txt
 
 COPY backend/ ./
 RUN chmod +x docker-entrypoint.sh

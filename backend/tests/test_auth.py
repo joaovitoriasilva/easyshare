@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from app.core.rate_limit import limiter
 from fastapi.testclient import TestClient
 
-from app.core.rate_limit import limiter
 from tests.conftest import register_and_login
 
 

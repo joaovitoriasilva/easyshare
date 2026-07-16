@@ -5,11 +5,11 @@ from __future__ import annotations
 import io
 import json
 
+from app.models.models import AuditEvent
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from app.models.models import AuditEvent
 from tests.conftest import register_and_login
 
 

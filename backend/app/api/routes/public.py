@@ -113,9 +113,16 @@ def _public_share_read(
 
 
 @router.get("/{token}", response_model=PublicShareRead)
-def view_share(token: str, db: DbSession) -> PublicShareRead:
+def view_share(token: str, db: DbSession, request: Request) -> PublicShareRead:
     """View share metadata. Files are hidden for restricted shares."""
     share = _get_active_share(db, token)
+    record_event(
+        db,
+        "share.view",
+        request=request,
+        target=f"share:{token[:8]}",
+        package_id=share.package_id,
+    )
     return _public_share_read(
         share, reveal_files=share.visibility != ShareVisibility.RESTRICTED
     )
@@ -263,10 +270,13 @@ def download_shared_archive(
         actor=email,
         target=f"share:{token[:8]}",
         package_id=share.package_id,
-        detail={"file_count": len(selected), "archive": True},
+        detail={"file_ids": [file.id for file in selected], "archive": True},
     )
 
-    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    # Deliberately not a context manager (SIM115): the handle is written, then
+    # closed, then streamed by FileResponse and unlinked in a background task
+    # once the response completes, so its lifetime outlives this function.
+    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)  # noqa: SIM115
     tmp_path = tmp.name
     try:
         seen_counts: dict[str, int] = {}

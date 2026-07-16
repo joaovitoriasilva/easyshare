@@ -5,11 +5,10 @@ from __future__ import annotations
 from collections.abc import Generator
 from typing import NoReturn
 
-from fastapi.testclient import TestClient
-from sqlalchemy.exc import OperationalError
-
 from app.api.deps import get_db
 from app.main import app
+from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 
 
 def test_health_ok(client: TestClient) -> None:

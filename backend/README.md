@@ -18,17 +18,17 @@ Secure file & package sharing API built with **FastAPI**, **Pydantic v2**,
 
 ```bash
 cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+# Install the locked dependencies (including dev tooling) into .venv
+uv sync
 
 # Configure the environment (a secret key is required in production)
 cp .env.example .env
 
 # Create the database schema
-alembic upgrade head
+uv run alembic upgrade head
 
 # Run the API
-uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload
 ```
 
 Interactive docs are then available at http://localhost:8000/docs.
@@ -36,9 +36,9 @@ Interactive docs are then available at http://localhost:8000/docs.
 ## Quality gates
 
 ```bash
-ruff check app tests   # lint
-mypy app               # static type checking
-pytest                 # tests
+uv run ruff check app tests   # lint
+uv run mypy app               # static type checking
+uv run pytest                 # tests
 ```
 
 ## Project layout
