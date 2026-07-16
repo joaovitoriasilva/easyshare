@@ -6,6 +6,7 @@ import enum
 from datetime import UTC, datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     Enum,
@@ -87,7 +88,9 @@ class PackageFile(Base):
     )
     filename: Mapped[str] = mapped_column(String(255))
     content_type: Mapped[str] = mapped_column(String(255), default="application/octet-stream")
-    size: Mapped[int] = mapped_column(Integer, default=0)
+    # BigInteger so a large max_file_size cannot overflow the 32-bit INTEGER
+    # limit (~2.1 GB) on databases like PostgreSQL where INTEGER is 4 bytes.
+    size: Mapped[int] = mapped_column(BigInteger, default=0)
     storage_key: Mapped[str] = mapped_column(String(255), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
