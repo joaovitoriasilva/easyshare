@@ -6,8 +6,16 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+# Placeholder secrets that must never be used in a production deployment.
+_INSECURE_SECRET_KEYS = frozenset(
+    {
+        "change-me-in-production-this-is-not-secure",
+        "please-change-me-in-production",
+    }
+)
 
 
 class Settings(BaseSettings):
@@ -50,6 +58,25 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    @model_validator(mode="after")
+    def _guard_production_security(self) -> Settings:
+        """Fail fast when production is configured with insecure defaults."""
+        if not self.is_production:
+            return self
+        problems: list[str] = []
+        if self.secret_key in _INSECURE_SECRET_KEYS or len(self.secret_key) < 32:
+            problems.append(
+                "EASYSHARE_SECRET_KEY must be a unique value of at least "
+                "32 characters"
+            )
+        if self.debug:
+            problems.append("EASYSHARE_DEBUG must be disabled")
+        if problems:
+            raise ValueError(
+                "Insecure production configuration: " + "; ".join(problems)
+            )
+        return self
 
     @property
     def is_production(self) -> bool:

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import decode_access_token
 from app.db.session import get_db
-from app.models.models import User
+from app.models.models import Package, User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
@@ -42,3 +42,20 @@ def get_current_user(
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def get_owned_package(
+    package_id: int,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> Package:
+    """Resolve a package owned by ``current_user``, or raise 404."""
+    package = db.get(Package, package_id)
+    if package is None or package.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Package not found"
+        )
+    return package
+
+
+OwnedPackage = Annotated[Package, Depends(get_owned_package)]

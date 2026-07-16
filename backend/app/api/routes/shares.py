@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import DbSession, OwnedPackage
 from app.core.security import generate_share_token
-from app.models.models import Package, Share, ShareAllowedEmail, ShareVisibility
+from app.models.models import Share, ShareAllowedEmail, ShareVisibility
 from app.schemas.schemas import (
     MessageResponse,
     ShareCreate,
@@ -15,15 +15,6 @@ from app.schemas.schemas import (
 )
 
 router = APIRouter(prefix="/packages/{package_id}/share", tags=["shares"])
-
-
-def _get_owned_package(db: DbSession, package_id: int, owner_id: int) -> Package:
-    package = db.get(Package, package_id)
-    if package is None or package.owner_id != owner_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Package not found"
-        )
-    return package
 
 
 def _serialize(share: Share) -> ShareRead:
@@ -66,13 +57,11 @@ def _apply_emails(share: Share, emails: list[str]) -> None:
 
 @router.post("", response_model=ShareRead, status_code=status.HTTP_201_CREATED)
 def enable_share(
-    package_id: int,
     payload: ShareCreate,
+    package: OwnedPackage,
     db: DbSession,
-    current_user: CurrentUser,
 ) -> ShareRead:
     """Enable sharing for a package, generating a valid share id (token)."""
-    package = _get_owned_package(db, package_id, current_user.id)
     if package.share is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -98,11 +87,8 @@ def enable_share(
 
 
 @router.get("", response_model=ShareRead)
-def get_share(
-    package_id: int, db: DbSession, current_user: CurrentUser
-) -> ShareRead:
+def get_share(package: OwnedPackage) -> ShareRead:
     """Get the current share configuration for a package."""
-    package = _get_owned_package(db, package_id, current_user.id)
     if package.share is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -113,13 +99,11 @@ def get_share(
 
 @router.patch("", response_model=ShareRead)
 def update_share(
-    package_id: int,
     payload: ShareUpdate,
+    package: OwnedPackage,
     db: DbSession,
-    current_user: CurrentUser,
 ) -> ShareRead:
     """Update visibility, enabled state or allowed emails."""
-    package = _get_owned_package(db, package_id, current_user.id)
     share = package.share
     if share is None:
         raise HTTPException(
@@ -146,11 +130,8 @@ def update_share(
 
 
 @router.delete("", response_model=MessageResponse)
-def disable_share(
-    package_id: int, db: DbSession, current_user: CurrentUser
-) -> MessageResponse:
+def disable_share(package: OwnedPackage, db: DbSession) -> MessageResponse:
     """Disable sharing and remove the share link for a package."""
-    package = _get_owned_package(db, package_id, current_user.id)
     if package.share is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
