@@ -144,6 +144,7 @@ running with Docker.
 | `EASYSHARE_FORWARDED_ALLOW_IPS`          | `127.0.0.1`                          | Comma-separated reverse-proxy IPs whose `X-Forwarded-For` uvicorn trusts. Read by the Docker entrypoint, so it must be a real environment variable (e.g. set in Compose), not only in `backend/.env`. Use `*` only when the backend port is not publicly reachable. |
 | `EASYSHARE_LOG_LEVEL`                    | `INFO`                               | Root log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`).                       |
 | `EASYSHARE_LOG_FORMAT`                   | `console`                            | Log output format: `console` (human-readable) or `json` (structured, for shippers). |
+| `EASYSHARE_ADMIN_EMAILS`                 | _(empty)_                            | Comma-separated emails granted admin rights at registration; admins can read the full audit log (`GET /api/audit`, `/admin/audit`). Existing users can also be promoted in the database. |
 
 When running locally, edit `backend/.env` directly (it is loaded automatically
 by the backend on startup) or export the variables in your shell before

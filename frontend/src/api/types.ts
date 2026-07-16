@@ -9,6 +9,7 @@ export interface User {
   email: string;
   username: string;
   is_active: boolean;
+  is_admin: boolean;
   created_at: string;
 }
 
@@ -54,4 +55,23 @@ export interface PublicShare {
   requires_email: boolean;
   files: PublicFile[];
   download_token?: string | null;
+}
+
+export interface AuditEvent {
+  id: number;
+  created_at: string;
+  action: string;
+  actor: string | null;
+  target: string | null;
+  package_id: number | null;
+  request_id: string | null;
+  client_ip: string | null;
+  detail: Record<string, unknown> | null;
+}
+
+export interface AuditPage {
+  items: AuditEvent[];
+  total: number;
+  limit: number;
+  offset: number;
 }

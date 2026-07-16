@@ -96,6 +96,7 @@ def enable_share(
         request=request,
         actor=f"user:{package.owner_id}",
         target=f"package:{package.id}",
+        package_id=package.id,
         detail={"visibility": share.visibility.value},
     )
     return _serialize(share)
@@ -144,6 +145,7 @@ def update_share(
         request=request,
         actor=f"user:{package.owner_id}",
         target=f"package:{package.id}",
+        package_id=package.id,
     )
     return _serialize(share)
 
@@ -166,5 +168,6 @@ def disable_share(
         request=request,
         actor=f"user:{package.owner_id}",
         target=f"package:{package.id}",
+        package_id=package.id,
     )
     return MessageResponse(detail="Sharing disabled")

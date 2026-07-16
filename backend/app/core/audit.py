@@ -27,6 +27,7 @@ def record_event(
     request: Request | None = None,
     actor: str | None = None,
     target: str | None = None,
+    package_id: int | None = None,
     detail: dict[str, Any] | None = None,
 ) -> None:
     """Record a security-relevant event to stdout and the ``audit_log`` table.
@@ -55,6 +56,7 @@ def record_event(
                 action=action,
                 actor=actor,
                 target=target,
+                package_id=package_id,
                 request_id=get_request_id(),
                 client_ip=client_ip,
                 detail=json.dumps(detail) if detail else None,

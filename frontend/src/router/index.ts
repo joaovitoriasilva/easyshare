@@ -33,6 +33,18 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: "/activity",
+      name: "activity",
+      component: () => import("@/views/ActivityView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/admin/audit",
+      name: "admin-audit",
+      component: () => import("@/views/AdminAuditView.vue"),
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
       path: "/s/:token",
       name: "share",
       component: () => import("@/views/ShareView.vue"),
@@ -51,6 +63,9 @@ router.beforeEach(async (to) => {
 
   if (to.meta.requiresAuth && !auth.user) {
     return { name: "login", query: { redirect: to.fullPath } };
+  }
+  if (to.meta.requiresAdmin && !auth.user?.is_admin) {
+    return { name: "dashboard" };
   }
   if (to.name === "register" && !auth.allowRegistration) {
     return { name: "login" };

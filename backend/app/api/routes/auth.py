@@ -48,6 +48,7 @@ def register(request: Request, payload: UserCreate, db: DbSession) -> User:
         email=payload.email,
         username=payload.username,
         hashed_password=hash_password(payload.password),
+        is_admin=settings.is_admin_email(str(payload.email)),
     )
     db.add(user)
     db.commit()

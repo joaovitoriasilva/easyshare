@@ -142,6 +142,7 @@ def access_share(
             request=request,
             actor=email,
             target=f"share:{token[:8]}",
+            package_id=share.package_id,
             detail={"status": exc.status_code},
         )
         raise
@@ -151,6 +152,7 @@ def access_share(
         request=request,
         actor=email,
         target=f"share:{token[:8]}",
+        package_id=share.package_id,
     )
     download_token = (
         create_share_access_token(share.token, email.strip().lower())
@@ -187,6 +189,7 @@ def download_shared_file(
             "share.download.denied",
             request=request,
             target=f"share:{token[:8]}",
+            package_id=share.package_id,
             detail={"status": exc.status_code, "file_id": file_id},
         )
         raise
@@ -197,6 +200,7 @@ def download_shared_file(
         request=request,
         actor=email,
         target=f"share:{token[:8]}",
+        package_id=share.package_id,
         detail={"file_id": file_id, "filename": record.filename},
     )
     return FileResponse(
@@ -230,6 +234,7 @@ def download_shared_archive(
             "share.download.denied",
             request=request,
             target=f"share:{token[:8]}",
+            package_id=share.package_id,
             detail={"status": exc.status_code},
         )
         raise
@@ -257,6 +262,7 @@ def download_shared_archive(
         request=request,
         actor=email,
         target=f"share:{token[:8]}",
+        package_id=share.package_id,
         detail={"file_count": len(selected), "archive": True},
     )
 

@@ -9,7 +9,7 @@ from safeuploads import FileValidationError
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from app.api.routes import auth, packages, public, shares
+from app.api.routes import audit, auth, packages, public, shares
 from app.core.config import settings
 from app.core.logging import configure_logging
 from app.core.middleware import RequestContextMiddleware
@@ -60,6 +60,7 @@ app.include_router(auth.router, prefix=api_prefix)
 app.include_router(packages.router, prefix=api_prefix)
 app.include_router(shares.router, prefix=api_prefix)
 app.include_router(public.router, prefix=api_prefix)
+app.include_router(audit.router, prefix=api_prefix)
 
 
 @app.get("/api/health", tags=["health"])

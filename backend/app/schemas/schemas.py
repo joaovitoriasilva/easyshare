@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.models import ShareVisibility
 
@@ -24,6 +26,7 @@ class UserRead(BaseModel):
     email: EmailStr
     username: str
     is_active: bool
+    is_admin: bool
     created_at: datetime
 
 
@@ -133,3 +136,35 @@ class ShareAccessRequest(BaseModel):
 
 class MessageResponse(BaseModel):
     detail: str
+
+
+class AuditEventRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    action: str
+    actor: str | None
+    target: str | None
+    package_id: int | None
+    request_id: str | None
+    client_ip: str | None
+    detail: dict[str, Any] | None = None
+
+    @field_validator("detail", mode="before")
+    @classmethod
+    def _parse_detail(cls, value: object) -> object:
+        """Parse the stored JSON ``detail`` string into an object."""
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except ValueError:
+                return None
+        return value
+
+
+class AuditPage(BaseModel):
+    items: list[AuditEventRead]
+    total: int
+    limit: int
+    offset: int

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { packagesApi, publicApi } from "@/api";
+import { auditApi, packagesApi, publicApi } from "@/api";
 import { ApiError, getToken, setToken } from "@/api/client";
 
 afterEach(() => {
@@ -57,6 +57,42 @@ describe("packagesApi.list pagination", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[0][0]).toContain("offset=0");
     expect(fetchMock.mock.calls[1][0]).toContain("offset=100");
+  });
+});
+
+describe("auditApi", () => {
+  const jsonResponse = (data: unknown): Response =>
+    new Response(JSON.stringify(data), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  it("requests owner-scoped activity with pagination and filters", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ items: [], total: 0, limit: 50, offset: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await auditApi.mine({ action: "share.download", offset: 100 });
+
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain("/api/audit/mine?");
+    expect(url).toContain("action=share.download");
+    expect(url).toContain("offset=100");
+    expect(url).toContain("limit=50");
+  });
+
+  it("requests the admin-wide log at /audit", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ items: [], total: 0, limit: 50, offset: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await auditApi.all({ actor: "user:1" });
+
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain("/api/audit?");
+    expect(url).toContain("actor=user%3A1");
   });
 });
 

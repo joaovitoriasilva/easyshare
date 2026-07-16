@@ -23,6 +23,20 @@ function logout(): void {
           <span>EasyShare</span>
         </RouterLink>
         <nav class="flex items-center gap-3">
+          <RouterLink
+            v-if="auth.user"
+            :to="{ name: 'activity' }"
+            class="text-sm text-muted-foreground hover:text-foreground"
+          >
+            Activity
+          </RouterLink>
+          <RouterLink
+            v-if="auth.user?.is_admin"
+            :to="{ name: 'admin-audit' }"
+            class="text-sm text-muted-foreground hover:text-foreground"
+          >
+            Admin
+          </RouterLink>
           <span v-if="auth.user" class="text-sm text-muted-foreground">{{ auth.user.username }}</span>
           <ThemeToggle />
           <Button v-if="auth.user" variant="ghost" size="sm" @click="logout">

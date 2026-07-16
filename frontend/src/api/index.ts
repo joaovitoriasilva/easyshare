@@ -1,5 +1,13 @@
 import { api, setToken } from "./client";
-import type { AuthConfig, Package, PublicShare, Share, User, Visibility } from "./types";
+import type {
+  AuditPage,
+  AuthConfig,
+  Package,
+  PublicShare,
+  Share,
+  User,
+  Visibility,
+} from "./types";
 
 export const authApi = {
   async config(): Promise<AuthConfig> {
@@ -116,8 +124,7 @@ export const sharesApi = {
 export const publicApi = {
   view(token: string): Promise<PublicShare> {
     return api.request<PublicShare>(`/s/${token}`, { auth: false });
-  },
-  access(token: string, email: string): Promise<PublicShare> {
+  },  access(token: string, email: string): Promise<PublicShare> {
     return api.request<PublicShare>(`/s/${token}/access`, {
       method: "POST",
       body: { email },
@@ -142,5 +149,38 @@ export const publicApi = {
     }
     const query = params.toString();
     return `/api/s/${token}/files/${fileId}/download${query ? `?${query}` : ""}`;
+  },
+};
+
+export interface AuditQuery {
+  limit?: number;
+  offset?: number;
+  action?: string;
+  actor?: string;
+  packageId?: number;
+}
+
+function auditQuery(params: AuditQuery): string {
+  const q = new URLSearchParams();
+  q.set("limit", String(params.limit ?? 50));
+  q.set("offset", String(params.offset ?? 0));
+  if (params.action) {
+    q.set("action", params.action);
+  }
+  if (params.actor) {
+    q.set("actor", params.actor);
+  }
+  if (params.packageId != null) {
+    q.set("package_id", String(params.packageId));
+  }
+  return `?${q.toString()}`;
+}
+
+export const auditApi = {
+  mine(params: AuditQuery = {}): Promise<AuditPage> {
+    return api.request<AuditPage>(`/audit/mine${auditQuery(params)}`);
+  },
+  all(params: AuditQuery = {}): Promise<AuditPage> {
+    return api.request<AuditPage>(`/audit${auditQuery(params)}`);
   },
 };

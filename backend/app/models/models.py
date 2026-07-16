@@ -41,6 +41,7 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     packages: Mapped[list[Package]] = relationship(
@@ -140,6 +141,7 @@ class AuditEvent(Base):
         DateTime(timezone=True), default=_utcnow, index=True
     )
     action: Mapped[str] = mapped_column(String(64), index=True)
+    package_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     actor: Mapped[str | None] = mapped_column(String(320), nullable=True)
     target: Mapped[str | None] = mapped_column(String(255), nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
