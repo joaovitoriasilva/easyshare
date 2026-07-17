@@ -22,7 +22,17 @@ FROM python:3.13-slim@sha256:6771159cd4fa5d9bba1258caf0b82e6b73458c694d178ad97c5
 WORKDIR /tmp/backend
 COPY --from=uv-dist /uv /uvx /usr/local/bin/
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN uv export --no-emit-project --no-dev -o requirements.txt
+# Optional runtime extras to bake into the image (comma-separated). The default
+# keeps the lean single-node image; enable object storage / a shared rate-limit
+# store at build time, e.g.:
+#   docker build --build-arg EASYSHARE_EXTRAS="s3" .
+#   docker build --build-arg EASYSHARE_EXTRAS="s3,redis" .
+ARG EASYSHARE_EXTRAS=""
+RUN extra_flags=""; \
+    for extra in $(echo "$EASYSHARE_EXTRAS" | tr ',' ' '); do \
+        extra_flags="$extra_flags --extra $extra"; \
+    done; \
+    uv export --no-emit-project --no-dev $extra_flags -o requirements.txt
 
 # Stage 3: backend + bundled frontend
 FROM python:3.13-slim@sha256:6771159cd4fa5d9bba1258caf0b82e6b73458c694d178ad97c5e925c2d0e1a91

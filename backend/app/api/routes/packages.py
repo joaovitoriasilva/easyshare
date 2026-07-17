@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
@@ -214,12 +214,12 @@ def upload_file(
 
 
 @router.get("/{package_id}/files/{file_id}/download")
-def download_owned_file(record: OwnedFile) -> FileResponse:
+def download_owned_file(record: OwnedFile) -> Response:
     """Download a file from an owned package."""
-    return FileResponse(
-        storage.path(record.storage_key),
-        media_type=record.content_type,
+    return storage.download_response(
+        record.storage_key,
         filename=record.filename,
+        content_type=record.content_type,
     )
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import select, update
 
 from app.api.deps import DbSession
@@ -208,7 +208,7 @@ def download_shared_file(
     db: DbSession,
     request: Request,
     access: str | None = Query(default=None),
-) -> FileResponse:
+) -> Response:
     """Download a single file from a share."""
     share = _get_active_share(db, token)
     email = _authorize_download_or_deny(
@@ -234,10 +234,8 @@ def download_shared_file(
         package_id=package_id,
         detail={"file_id": file_id, "filename": filename},
     )
-    return FileResponse(
-        storage.path(storage_key),
-        media_type=content_type,
-        filename=filename,
+    return storage.download_response(
+        storage_key, filename=filename, content_type=content_type
     )
 
 

@@ -1,4 +1,12 @@
-"""Local filesystem storage service for uploaded files."""
+"""Pluggable blob storage for uploaded files.
+
+The active backend is chosen from ``EASYSHARE_STORAGE_URI`` by
+:func:`build_storage`: an empty value (the default) keeps files on local disk
+under ``storage_dir``; an ``s3://…`` URI stores them in S3-compatible object
+storage. Domain code depends only on the :class:`StorageBackend` interface, so
+switching backends needs no code changes and no data migration (the database
+only ever stores the opaque storage key).
+"""
 
 from __future__ import annotations
 
@@ -6,7 +14,12 @@ import contextlib
 import os
 import secrets
 import shutil
+from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import BinaryIO
+
+from fastapi.responses import FileResponse
+from starlette.responses import Response
 
 from app.core.config import settings
 
@@ -22,7 +35,7 @@ def _readable_name(file_id: int, filename: str) -> str:
     The ``file_id`` prefix guarantees uniqueness (so two files sharing a name
     never clash) and neutralises any residual ``..`` name. Path separators are
     stripped defensively so the component can never escape its package
-    directory; :meth:`StorageService._resolve` remains the ultimate guard.
+    directory; :meth:`LocalStorageBackend._resolve` remains the ultimate guard.
     """
     safe = filename.replace("/", "_").replace("\\", "_")
     stem, ext = os.path.splitext(safe)
@@ -41,20 +54,12 @@ class FileTooLargeError(Exception):
         self.max_bytes = max_bytes
 
 
-class StorageService:
-    """Stores file contents on the local filesystem under a base directory."""
+class StorageBackend(ABC):
+    """Interface every storage backend implements.
 
-    def __init__(self, base_dir: Path | None = None) -> None:
-        self.base_dir = Path(base_dir or settings.storage_dir)
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-
-    def _resolve(self, storage_key: str) -> Path:
-        """Resolve a storage key to an absolute path, preventing traversal."""
-        target = (self.base_dir / storage_key).resolve()
-        base = self.base_dir.resolve()
-        if base != target and base not in target.parents:
-            raise ValueError("Invalid storage key")
-        return target
+    Storage-key generation is backend-agnostic and shared here; each concrete
+    backend provides persistence, streaming, deletion and download serving.
+    """
 
     def generate_key(self) -> str:
         """Return a unique, opaque storage key."""
@@ -69,8 +74,66 @@ class StorageService:
         """
         return f"{package_id}/{_readable_name(file_id, filename)}"
 
+    @abstractmethod
     def save(
-        self, storage_key: str, source: object, max_bytes: int | None = None
+        self, storage_key: str, source: BinaryIO, max_bytes: int | None = None
+    ) -> int:
+        """Persist ``source`` and return the number of bytes stored.
+
+        Raises:
+            FileTooLargeError: If the stream exceeds ``max_bytes``.
+        """
+
+    @abstractmethod
+    def open_stream(self, storage_key: str) -> BinaryIO:
+        """Open a stored object for reading in binary mode."""
+
+    @abstractmethod
+    def delete(self, storage_key: str) -> None:
+        """Delete a stored object; a missing object is not an error."""
+
+    @abstractmethod
+    def exists(self, storage_key: str) -> bool:
+        """Return whether an object exists for ``storage_key``."""
+
+    @abstractmethod
+    def check_writable(self) -> None:
+        """Verify the backend is reachable and writable.
+
+        Used by the readiness probe. Raises ``OSError`` when the backing store
+        cannot be written to, so a detached volume or unreachable bucket is
+        reported as not-ready instead of silently failing uploads.
+        """
+
+    @abstractmethod
+    def download_response(
+        self, storage_key: str, *, filename: str, content_type: str
+    ) -> Response:
+        """Return a response that delivers the object as a download.
+
+        Local storage streams the file directly (zero-copy, range-capable);
+        object storage redirects to a short-lived presigned URL so the object
+        is served by the store/CDN rather than proxied through this process.
+        """
+
+
+class LocalStorageBackend(StorageBackend):
+    """Stores object contents as files on the local filesystem."""
+
+    def __init__(self, base_dir: Path | None = None) -> None:
+        self.base_dir = Path(base_dir or settings.storage_dir)
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+
+    def _resolve(self, storage_key: str) -> Path:
+        """Resolve a storage key to an absolute path, preventing traversal."""
+        target = (self.base_dir / storage_key).resolve()
+        base = self.base_dir.resolve()
+        if base != target and base not in target.parents:
+            raise ValueError("Invalid storage key")
+        return target
+
+    def save(
+        self, storage_key: str, source: BinaryIO, max_bytes: int | None = None
     ) -> int:
         """Persist a file-like ``source`` and return the number of bytes written.
 
@@ -88,7 +151,7 @@ class StorageService:
         try:
             with target.open("wb") as buffer:
                 while True:
-                    chunk = source.read(1024 * 1024)  # type: ignore[attr-defined]
+                    chunk = source.read(1024 * 1024)
                     if not chunk:
                         break
                     size += len(chunk)
@@ -100,7 +163,7 @@ class StorageService:
             raise
         return size
 
-    def open_stream(self, storage_key: str) -> object:
+    def open_stream(self, storage_key: str) -> BinaryIO:
         """Open a stored file for reading in binary mode."""
         return self._resolve(storage_key).open("rb")
 
@@ -108,19 +171,24 @@ class StorageService:
         """Return the absolute path for a stored file."""
         return self._resolve(storage_key)
 
-    def check_writable(self) -> None:
-        """Verify the storage directory exists and is writable.
+    def exists(self, storage_key: str) -> bool:
+        return self._resolve(storage_key).is_file()
 
-        Used by the readiness probe so a detached or read-only data volume is
-        reported as not-ready instead of silently failing uploads. Raises
-        ``OSError`` if the directory cannot be created or written to.
-        """
+    def check_writable(self) -> None:
+        """Verify the storage directory exists and is writable."""
         self.base_dir.mkdir(parents=True, exist_ok=True)
         probe = self.base_dir / f".healthcheck-{secrets.token_hex(8)}"
         try:
             probe.write_bytes(b"")
         finally:
             probe.unlink(missing_ok=True)
+
+    def download_response(
+        self, storage_key: str, *, filename: str, content_type: str
+    ) -> Response:
+        return FileResponse(
+            self.path(storage_key), media_type=content_type, filename=filename
+        )
 
     def delete(self, storage_key: str) -> None:
         """Delete a stored file, pruning an emptied package subdirectory."""
@@ -142,4 +210,28 @@ class StorageService:
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
 
-storage = StorageService()
+def build_storage() -> StorageBackend:
+    """Build the storage backend selected by ``settings.storage_uri``.
+
+    An empty URI (the default) or a ``local://path`` URI uses the local
+    filesystem; an ``s3://bucket/prefix`` URI uses object storage. The S3
+    backend is imported lazily so a default deployment never imports boto3.
+
+    Raises:
+        ValueError: When the URI uses an unsupported scheme.
+    """
+    uri = settings.storage_uri.strip()
+    if not uri:
+        return LocalStorageBackend(settings.storage_dir)
+    scheme, _, rest = uri.partition("://")
+    scheme = scheme.lower()
+    if scheme == "local":
+        return LocalStorageBackend(Path(rest) if rest else settings.storage_dir)
+    if scheme == "s3":
+        from app.services.storage_s3 import S3StorageBackend
+
+        return S3StorageBackend.from_uri(uri)
+    raise ValueError(f"Unsupported EASYSHARE_STORAGE_URI scheme: {scheme or uri!r}")
+
+
+storage: StorageBackend = build_storage()

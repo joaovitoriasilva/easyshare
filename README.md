@@ -144,6 +144,7 @@ running with Docker.
 | `EASYSHARE_SECRET_KEY`                   | `change-me-in-production-this-is-not-secure` | Secret used to sign JWT access tokens. **Must** be overridden with a long, random value in production (e.g. `openssl rand -hex 32`). |
 | `EASYSHARE_APP_NAME`                     | `EasyShare`                         | Human-readable application name.                                            |
 | `EASYSHARE_ENVIRONMENT`                  | `development`                       | Deployment environment name (e.g. `development`, `production`).             |
+| `EASYSHARE_DEPLOYMENT_PROFILE`           | `local`                              | Deployment topology: `local` (single node, the default) or `distributed` (multiple workers/replicas). `distributed` refuses to start unless `EASYSHARE_RATE_LIMIT_STORAGE_URI` points at a shared store (Redis), so per-process in-memory limits cannot silently under-enforce across the fleet. |
 | `EASYSHARE_ACCESS_TOKEN_EXPIRE_MINUTES`  | `1440`                               | Lifetime of JWT access tokens, in minutes.                                   |
 | `EASYSHARE_SHARE_ACCESS_TOKEN_EXPIRE_MINUTES` | `30`                          | Lifetime, in minutes, of the token authorising restricted-share downloads.  |
 | `EASYSHARE_ALGORITHM`                    | `HS256`                              | JWT signing algorithm.                                                      |
@@ -152,7 +153,8 @@ running with Docker.
 | `EASYSHARE_DB_POOL_SIZE`                 | `20`                                 | Connection pool size for server databases (PostgreSQL, etc.); ignored for SQLite. |
 | `EASYSHARE_DB_MAX_OVERFLOW`              | `20`                                 | Extra connections allowed beyond the pool size under load (server databases only). |
 | `EASYSHARE_DB_POOL_TIMEOUT`              | `30`                                 | Seconds a request waits for a free pooled connection before erroring (server databases only). |
-| `EASYSHARE_STORAGE_DIR`                  | `./storage`                          | Directory (or mounted volume) where uploaded files are stored.              |
+| `EASYSHARE_STORAGE_URI`                  | _(empty)_                            | Storage backend selector. Empty (the default) stores uploads on local disk under `EASYSHARE_STORAGE_DIR`. Set `s3://bucket/prefix?region=…&endpoint_url=…` to use S3-compatible object storage (requires the `s3` build extra / boto3); single-file downloads then redirect to a short-lived presigned URL served by the store. |
+| `EASYSHARE_STORAGE_DIR`                  | `./storage`                          | Directory (or mounted volume) where uploaded files are stored (local backend). |
 | `EASYSHARE_MAX_FILE_SIZE`                | `104857600` (100 MB)                 | Maximum size, in bytes, allowed for a single uploaded file.                  |
 | `EASYSHARE_MAX_FILES_PER_PACKAGE`        | `50`                                  | Maximum number of files allowed in a single package.                        |
 | `EASYSHARE_MAX_ARCHIVE_SIZE`             | `5368709120` (5 GiB)                 | Maximum combined size, in bytes, of a zip download; larger selections are rejected with 413. |
@@ -162,7 +164,7 @@ running with Docker.
 | `EASYSHARE_OBFUSCATE_STORAGE_NAMES`      | `true`                               | When `true`, stored files get opaque random names on disk. Set to `false` to store them under readable `{package_id}/{file_id}_{filename}` paths instead. The original filename is always kept in the database; only files uploaded after the change are affected. |
 | `EASYSHARE_CORS_ORIGINS`                 | `http://localhost:5173`              | Comma-separated list of allowed CORS origins.                               |
 | `EASYSHARE_RATE_LIMIT_ENABLED`           | `true`                               | Set to `false` to disable API rate limiting.                                |
-| `EASYSHARE_RATE_LIMIT_STORAGE_URI`       | `memory://`                         | Rate-limit counter storage backend URI (e.g. `memory://`, `redis://...`).   |
+| `EASYSHARE_RATE_LIMIT_STORAGE_URI`       | `memory://`                         | Rate-limit counter store URI. `memory://` (default) is per-process and fine for a single node; use `redis://…` when running multiple workers/replicas (required by `EASYSHARE_DEPLOYMENT_PROFILE=distributed`, needs the `redis` build extra). |
 | `EASYSHARE_FORWARDED_ALLOW_IPS`          | `127.0.0.1`                          | Comma-separated reverse-proxy IPs whose `X-Forwarded-For` uvicorn trusts. Read by the Docker entrypoint, so it must be a real environment variable (e.g. set in Compose), not only in `backend/.env`. Use `*` only when the backend port is not publicly reachable. |
 | `EASYSHARE_LOG_LEVEL`                    | `INFO`                               | Root log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`).                       |
 | `EASYSHARE_LOG_FORMAT`                   | `console`                            | Log output format: `console` (human-readable) or `json` (structured, for shippers). |
@@ -188,6 +190,34 @@ dev` (Vite) proxies `/api` requests to `http://localhost:8000` (see
 `frontend/vite.config.ts`). In the Docker image the frontend is built into
 static files and served by the FastAPI backend itself, on the same origin as
 `/api`, so no proxying is needed there at all.
+
+## Scaling to multiple replicas
+
+The default configuration is a self-contained single node: uploads live on
+local disk and rate-limit counters live in process memory, which needs no extra
+services. Running more than one worker or replica requires state that is shared
+across processes, so switch two backends and declare the topology:
+
+- **Shared rate-limit store.** Point `EASYSHARE_RATE_LIMIT_STORAGE_URI` at Redis
+  (e.g. `redis://redis:6379/0`) so limits are enforced across the fleet rather
+  than per-process. Set `EASYSHARE_DEPLOYMENT_PROFILE=distributed`; the app then
+  refuses to start on the in-memory store, turning a silent misconfiguration
+  into a clear boot error.
+- **Shared storage.** Either mount the same network volume at
+  `EASYSHARE_STORAGE_DIR` on every replica, or set
+  `EASYSHARE_STORAGE_URI=s3://bucket/prefix?region=…&endpoint_url=…` to use
+  S3-compatible object storage (MinIO, R2, Ceph, …). With S3, single-file
+  downloads redirect to a short-lived presigned URL, so file bytes are served by
+  the object store instead of being proxied through the app.
+- **Bake in the optional dependencies.** boto3 and redis ship only when
+  requested, so build the image with the extras you need:
+  `docker build --build-arg EASYSHARE_EXTRAS="s3,redis" .`
+
+Two caveats when using S3: the presigned redirect means authenticated
+owner-side downloads (issued with `fetch`) require the bucket's CORS policy to
+allow the app origin — public share downloads use a normal link and are
+unaffected. Also run database migrations once as a separate step rather than
+letting every replica run them on start-up.
 
 ## Testing & quality
 

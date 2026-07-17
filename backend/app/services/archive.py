@@ -7,7 +7,9 @@ suffixing and cleanup logic live in exactly one place.
 
 from __future__ import annotations
 
+import contextlib
 import os
+import shutil
 import tempfile
 import threading
 import zipfile
@@ -111,7 +113,15 @@ def _build_archive(
         with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as archive:
             for file in files:
                 arcname = _unique_arcname(file.filename, seen_counts)
-                archive.write(storage.path(file.storage_key), arcname=arcname)
+                # Stream each object through the backend rather than reading a
+                # local path, so the same builder serves local-disk and S3
+                # storage. ``closing`` covers both a file object and an S3
+                # streaming body.
+                with (
+                    contextlib.closing(storage.open_stream(file.storage_key)) as src,
+                    archive.open(arcname, "w") as dest,
+                ):
+                    shutil.copyfileobj(src, dest)
     except Exception:
         tmp.close()
         os.unlink(tmp_path)

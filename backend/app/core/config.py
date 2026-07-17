@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     # Core
     app_name: str = "EasyShare"
     environment: str = "development"
+    # Deployment topology. "local" (the default) is a single process/node:
+    # in-memory rate limiting and local-disk storage need no extra services.
+    # "distributed" declares multiple workers/replicas, which cannot share
+    # process-local state — so the guard below refuses to start unless a shared
+    # rate-limit store (Redis) is configured, ensuring limits are enforced
+    # across the whole fleet instead of silently per-process.
+    deployment_profile: str = "local"
 
     # Security
     secret_key: str = Field(
@@ -51,7 +58,12 @@ class Settings(BaseSettings):
     db_max_overflow: int = Field(default=20, ge=0)
     db_pool_timeout: int = Field(default=30, ge=1)
 
-    # File storage
+    # File storage. ``storage_uri`` selects the backend: empty (the default)
+    # stores files on local disk under ``storage_dir``; ``s3://bucket/prefix?
+    # region=…&endpoint_url=…`` uses S3-compatible object storage instead
+    # (requires the ``s3`` extra / boto3). ``local://path`` is also accepted as
+    # an explicit form of the disk backend.
+    storage_uri: str = ""
     storage_dir: Path = Path("./storage")
     max_file_size: int = 100 * 1024 * 1024  # 100 MB per file
     max_files_per_package: int = 50
@@ -110,6 +122,17 @@ class Settings(BaseSettings):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
+    @field_validator("deployment_profile")
+    @classmethod
+    def _validate_profile(cls, value: str) -> str:
+        """Reject unknown profiles so a typo can't silently run single-node."""
+        normalized = value.strip().lower()
+        if normalized not in {"local", "distributed"}:
+            raise ValueError(
+                "EASYSHARE_DEPLOYMENT_PROFILE must be 'local' or 'distributed'"
+            )
+        return normalized
+
     @model_validator(mode="after")
     def _guard_production_security(self) -> Settings:
         """Fail fast when production is configured with insecure defaults."""
@@ -124,6 +147,26 @@ class Settings(BaseSettings):
         if problems:
             raise ValueError(
                 "Insecure production configuration: " + "; ".join(problems)
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _guard_distributed_shared_state(self) -> Settings:
+        """A distributed deployment must not rely on process-local state.
+
+        With more than one worker/replica an in-memory rate-limit store is
+        per-process, so the configured limits would effectively be multiplied by
+        the number of processes. Fail fast and require a shared Redis store
+        instead of degrading silently.
+        """
+        if self.deployment_profile != "distributed":
+            return self
+        uri = self.rate_limit_storage_uri.strip().lower()
+        if not uri or uri.startswith("memory://"):
+            raise ValueError(
+                "EASYSHARE_DEPLOYMENT_PROFILE=distributed requires a shared "
+                "rate-limit store: set EASYSHARE_RATE_LIMIT_STORAGE_URI to a "
+                "redis:// URI"
             )
         return self
 

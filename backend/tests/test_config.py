@@ -31,3 +31,28 @@ def test_development_allows_insecure_defaults() -> None:
         secret_key="change-me-in-production-this-is-not-secure",
     )
     assert not settings.is_production
+
+
+def test_distributed_requires_shared_rate_limit_store() -> None:
+    with pytest.raises(ValidationError):
+        Settings(deployment_profile="distributed", rate_limit_storage_uri="memory://")
+
+
+def test_distributed_allows_redis_rate_limit_store() -> None:
+    settings = Settings(
+        deployment_profile="distributed",
+        rate_limit_storage_uri="redis://localhost:6379/0",
+    )
+    assert settings.deployment_profile == "distributed"
+
+
+def test_local_profile_allows_in_memory_store() -> None:
+    settings = Settings(
+        deployment_profile="local", rate_limit_storage_uri="memory://"
+    )
+    assert settings.deployment_profile == "local"
+
+
+def test_invalid_deployment_profile_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        Settings(deployment_profile="cluster")
