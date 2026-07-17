@@ -42,6 +42,13 @@ export interface PackageStats {
   file_downloads: Record<number, number>;
 }
 
+export interface PackagePage {
+  items: Package[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface Share {
   id: number;
   package_id: number;

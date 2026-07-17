@@ -15,6 +15,7 @@ from app.schemas.schemas import (
     MessageResponse,
     PackageCreate,
     PackageFileRead,
+    PackagePage,
     PackageRead,
     PackageStats,
     PackageUpdate,
@@ -45,19 +46,28 @@ def create_package(
     return package
 
 
-@router.get("", response_model=list[PackageRead])
+@router.get("", response_model=PackagePage)
 def list_packages(
     db: DbSession,
     current_user: CurrentUser,
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-) -> list[Package]:
+) -> PackagePage:
     """List packages owned by the current user, newest first (paginated).
 
-    ``files`` are eager-loaded with ``selectinload`` so serialising the list
-    issues one extra query instead of one per package (avoids N+1).
+    ``files`` are eager-loaded with ``selectinload`` so serialising the page
+    issues one extra query instead of one per package (avoids N+1). ``total``
+    lets the client render page controls without fetching every package.
     """
-    return list(
+    total = (
+        db.scalar(
+            select(func.count())
+            .select_from(Package)
+            .where(Package.owner_id == current_user.id)
+        )
+        or 0
+    )
+    items = list(
         db.scalars(
             select(Package)
             .where(Package.owner_id == current_user.id)
@@ -66,6 +76,12 @@ def list_packages(
             .limit(limit)
             .offset(offset)
         )
+    )
+    return PackagePage(
+        items=[PackageRead.model_validate(pkg) for pkg in items],
+        total=total,
+        limit=limit,
+        offset=offset,
     )
 
 

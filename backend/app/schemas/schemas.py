@@ -123,6 +123,15 @@ class PackageStats(BaseModel):
     file_downloads: dict[int, int] = Field(default_factory=dict)
 
 
+class PackagePage(BaseModel):
+    """A paginated page of the current user's packages."""
+
+    items: list[PackageRead]
+    total: int
+    limit: int
+    offset: int
+
+
 # --- Shares ----------------------------------------------------------------
 
 

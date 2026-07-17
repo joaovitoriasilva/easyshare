@@ -30,7 +30,7 @@ def test_create_and_list_packages(client: TestClient) -> None:
 
     listing = client.get("/api/packages", headers=headers)
     assert listing.status_code == 200
-    assert [p["id"] for p in listing.json()] == [pkg_id]
+    assert [p["id"] for p in listing.json()["items"]] == [pkg_id]
 
 
 def test_list_packages_pagination(client: TestClient) -> None:
@@ -41,14 +41,17 @@ def test_list_packages_pagination(client: TestClient) -> None:
         "/api/packages", params={"limit": 2, "offset": 0}, headers=headers
     )
     assert page1.status_code == 200
-    assert len(page1.json()) == 2
+    assert page1.json()["total"] == 3
+    assert len(page1.json()["items"]) == 2
 
     page2 = client.get(
         "/api/packages", params={"limit": 2, "offset": 2}, headers=headers
     )
-    assert len(page2.json()) == 1
+    assert len(page2.json()["items"]) == 1
 
-    seen = {p["id"] for p in page1.json()} | {p["id"] for p in page2.json()}
+    seen = {p["id"] for p in page1.json()["items"]} | {
+        p["id"] for p in page2.json()["items"]
+    }
     assert seen == ids
 
     # Bounds are validated.
@@ -73,8 +76,8 @@ def test_list_packages_includes_files(client: TestClient) -> None:
         headers=headers,
     )
     listing = client.get("/api/packages", headers=headers).json()
-    assert listing[0]["id"] == pkg_id
-    assert [f["filename"] for f in listing[0]["files"]] == ["a.txt"]
+    assert listing["items"][0]["id"] == pkg_id
+    assert [f["filename"] for f in listing["items"][0]["files"]] == ["a.txt"]
 
 
 def test_package_requires_auth(client: TestClient) -> None:

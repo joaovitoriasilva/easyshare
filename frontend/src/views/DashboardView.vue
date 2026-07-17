@@ -21,6 +21,9 @@ import {
 const toast = useToasts();
 
 const packages = ref<Package[]>([]);
+const total = ref(0);
+const offset = ref(0);
+const pageSize = 12;
 const loading = ref(true);
 const error = ref<string | null>(null);
 
@@ -31,12 +34,29 @@ const creating = ref(false);
 
 async function load(): Promise<void> {
   loading.value = true;
+  error.value = null;
   try {
-    packages.value = await packagesApi.list();
+    const page = await packagesApi.list({ limit: pageSize, offset: offset.value });
+    packages.value = page.items;
+    total.value = page.total;
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to load packages";
   } finally {
     loading.value = false;
+  }
+}
+
+function next(): void {
+  if (offset.value + pageSize < total.value) {
+    offset.value += pageSize;
+    load();
+  }
+}
+
+function prev(): void {
+  if (offset.value > 0) {
+    offset.value = Math.max(0, offset.value - pageSize);
+    load();
   }
 }
 
@@ -48,11 +68,12 @@ async function create(): Promise<void> {
   creating.value = true;
   try {
     const created = await packagesApi.create(name.value.trim(), description.value || null);
-    packages.value.unshift(created);
     name.value = "";
     description.value = "";
     showForm.value = false;
     toast.success(`Created "${created.name}"`);
+    offset.value = 0;
+    await load();
   } catch (err) {
     toast.error(err instanceof ApiError ? err.message : "Failed to create package");
   } finally {
@@ -105,27 +126,49 @@ onMounted(load);
       <p>No packages yet. Create your first one above.</p>
     </div>
 
-    <div v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <RouterLink
-        v-for="pkg in packages"
-        :key="pkg.id"
-        :to="{ name: 'package', params: { id: pkg.id } }"
+    <template v-else>
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <RouterLink
+          v-for="pkg in packages"
+          :key="pkg.id"
+          :to="{ name: 'package', params: { id: pkg.id } }"
+        >
+          <Card class="h-full transition-colors hover:border-primary">
+            <CardHeader>
+              <CardTitle class="flex items-center justify-between text-lg">
+                {{ pkg.name }}
+                <Share2 class="h-4 w-4 text-muted-foreground" />
+              </CardTitle>
+              <CardDescription>
+                {{ pkg.files.length }} file(s)
+              </CardDescription>
+            </CardHeader>
+            <CardContent v-if="pkg.description">
+              <p class="text-sm text-muted-foreground line-clamp-2">{{ pkg.description }}</p>
+            </CardContent>
+          </Card>
+        </RouterLink>
+      </div>
+
+      <div
+        v-if="total > pageSize"
+        class="flex items-center justify-between text-sm text-muted-foreground"
       >
-        <Card class="h-full transition-colors hover:border-primary">
-          <CardHeader>
-            <CardTitle class="flex items-center justify-between text-lg">
-              {{ pkg.name }}
-              <Share2 class="h-4 w-4 text-muted-foreground" />
-            </CardTitle>
-            <CardDescription>
-              {{ pkg.files.length }} file(s)
-            </CardDescription>
-          </CardHeader>
-          <CardContent v-if="pkg.description">
-            <p class="text-sm text-muted-foreground line-clamp-2">{{ pkg.description }}</p>
-          </CardContent>
-        </Card>
-      </RouterLink>
-    </div>
+        <span>{{ total }} package{{ total === 1 ? "" : "s" }}</span>
+        <div class="flex gap-2">
+          <Button variant="outline" size="sm" :disabled="offset === 0" @click="prev">
+            Previous
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            :disabled="offset + pageSize >= total"
+            @click="next"
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+    </template>
   </div>
 </template>

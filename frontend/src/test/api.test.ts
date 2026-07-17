@@ -35,28 +35,43 @@ describe("publicApi url builders", () => {
   });
 });
 
-describe("packagesApi.list pagination", () => {
+describe("packagesApi.list", () => {
   const jsonResponse = (data: unknown): Response =>
     new Response(JSON.stringify(data), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
 
-  it("fetches successive pages until a short page", async () => {
-    const fullPage = Array.from({ length: 100 }, (_, i) => ({ id: i }));
-    const lastPage = [{ id: 100 }];
+  it("requests a single page with limit and offset", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(jsonResponse(fullPage))
-      .mockResolvedValueOnce(jsonResponse(lastPage));
+      .mockResolvedValue(
+        jsonResponse({ items: [{ id: 1 }], total: 30, limit: 12, offset: 12 }),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await packagesApi.list();
+    const page = await packagesApi.list({ limit: 12, offset: 12 });
 
-    expect(result).toHaveLength(101);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[0][0]).toContain("offset=0");
-    expect(fetchMock.mock.calls[1][0]).toContain("offset=100");
+    expect(page.total).toBe(30);
+    expect(page.items).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain("/api/packages?");
+    expect(url).toContain("limit=12");
+    expect(url).toContain("offset=12");
+  });
+
+  it("defaults limit and offset when omitted", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ items: [], total: 0, limit: 50, offset: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await packagesApi.list();
+
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain("limit=50");
+    expect(url).toContain("offset=0");
   });
 });
 
