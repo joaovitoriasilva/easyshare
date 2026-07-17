@@ -76,12 +76,15 @@ class Settings(BaseSettings):
     max_concurrent_archive_builds: int = Field(default=4, ge=1)
 
     # Storage quotas, in bytes; 0 means unlimited.
-    # ``storage_quota_total`` caps the whole instance's on-disk usage.
-    # ``storage_quota_per_user`` is the budget assigned to each user's
-    # ``storage_quota`` when their account is created (existing users are
-    # backfilled by migration); administrators can change it per user afterwards.
+    # ``storage_quota_total`` caps the whole instance's on-disk usage (0 =
+    # unlimited by default). ``storage_quota_per_user`` is the budget assigned
+    # to each user's ``storage_quota`` when their account is created; it
+    # defaults to 10 GiB so that open registration cannot fill the disk without
+    # bound. Set it to 0 for unlimited. Existing users keep the value
+    # snapshotted at creation (backfilled by migration); administrators can
+    # change it per user afterwards.
     storage_quota_total: int = Field(default=0, ge=0)
-    storage_quota_per_user: int = Field(default=0, ge=0)
+    storage_quota_per_user: int = Field(default=10 * 1024 * 1024 * 1024, ge=0)
     # When enabled (default) stored files are given opaque random names on disk
     # so the filesystem reveals nothing about their origin or contents. Disable
     # to store files under a readable ``{package_id}/{file_id}_{filename}`` path,
