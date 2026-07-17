@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from app.api.deps import get_db
+from app.core import audit as audit_module
 from app.core.rate_limit import limiter
 from app.db.session import Base
 from app.main import app
@@ -47,9 +48,12 @@ def db_sessionmaker(tmp_path: Path) -> Generator[sessionmaker]:
     storage_module.storage.base_dir = tmp_path / "storage"
     storage_module.storage.base_dir.mkdir(parents=True, exist_ok=True)
 
+    original_audit_sessionmaker = audit_module.audit_sessionmaker
+    audit_module.audit_sessionmaker = TestingSessionLocal
     app.dependency_overrides[get_db] = override_get_db
     yield TestingSessionLocal
     app.dependency_overrides.clear()
+    audit_module.audit_sessionmaker = original_audit_sessionmaker
     Base.metadata.drop_all(bind=engine)
 
 

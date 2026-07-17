@@ -91,7 +91,6 @@ def enable_share(
     db.commit()
     db.refresh(share)
     record_event(
-        db,
         "share.enable",
         request=request,
         actor=f"user:{package.owner_id}",
@@ -140,7 +139,6 @@ def update_share(
     db.commit()
     db.refresh(share)
     record_event(
-        db,
         "share.update",
         request=request,
         actor=f"user:{package.owner_id}",
@@ -163,7 +161,6 @@ def disable_share(
     db.delete(package.share)
     db.commit()
     record_event(
-        db,
         "share.disable",
         request=request,
         actor=f"user:{package.owner_id}",

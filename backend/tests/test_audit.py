@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import io
 import json
+from datetime import UTC, datetime, timedelta
 
+from app.core.audit import prune_audit_events
 from app.models.models import AuditEvent
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -119,6 +121,41 @@ def test_share_enable_access_and_download_are_audited(
     download = _events(db_sessionmaker, "share.download")[0]
     assert download.actor == "ok@example.com"
     assert download.target == f"share:{token[:8]}"
+
+
+def test_prune_audit_events_removes_old_events(
+    db_sessionmaker: sessionmaker,
+) -> None:
+    now = datetime.now(UTC)
+    with db_sessionmaker() as db:
+        db.add_all(
+            [
+                AuditEvent(action="old", created_at=now - timedelta(days=40)),
+                AuditEvent(action="recent", created_at=now - timedelta(days=5)),
+            ]
+        )
+        db.commit()
+
+    removed = prune_audit_events(retention_days=30)
+
+    assert removed == 1
+    assert _actions(db_sessionmaker) == ["recent"]
+
+
+def test_prune_audit_events_disabled_keeps_everything(
+    db_sessionmaker: sessionmaker,
+) -> None:
+    with db_sessionmaker() as db:
+        db.add(
+            AuditEvent(
+                action="ancient",
+                created_at=datetime.now(UTC) - timedelta(days=999),
+            )
+        )
+        db.commit()
+
+    assert prune_audit_events(retention_days=0) == 0
+    assert _actions(db_sessionmaker) == ["ancient"]
 
 
 def test_denied_share_access_is_audited(

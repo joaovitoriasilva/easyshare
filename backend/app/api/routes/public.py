@@ -113,7 +113,6 @@ def view_share(token: str, db: DbSession, request: Request) -> PublicShareRead:
     """View share metadata. Files are hidden for restricted shares."""
     share = _get_active_share(db, token)
     record_event(
-        db,
         "share.view",
         request=request,
         target=f"share:{token[:8]}",
@@ -140,7 +139,6 @@ def access_share(
         _authorize_email(share, email)
     except HTTPException as exc:
         record_event(
-            db,
             "share.access.denied",
             request=request,
             actor=email,
@@ -150,7 +148,6 @@ def access_share(
         )
         raise
     record_event(
-        db,
         "share.access.granted",
         request=request,
         actor=email,
@@ -188,7 +185,6 @@ def download_shared_file(
         email = _authorize_download(share, access)
     except HTTPException as exc:
         record_event(
-            db,
             "share.download.denied",
             request=request,
             target=f"share:{token[:8]}",
@@ -198,7 +194,6 @@ def download_shared_file(
         raise
     record = _resolve_file(share, file_id)
     record_event(
-        db,
         "share.download",
         request=request,
         actor=email,
@@ -233,7 +228,6 @@ def download_shared_archive(
         email = _authorize_download(share, access)
     except HTTPException as exc:
         record_event(
-            db,
             "share.download.denied",
             request=request,
             target=f"share:{token[:8]}",
@@ -260,7 +254,6 @@ def download_shared_archive(
         )
 
     record_event(
-        db,
         "share.download",
         request=request,
         actor=email,

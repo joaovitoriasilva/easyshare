@@ -160,6 +160,8 @@ running with Docker.
 | `EASYSHARE_FORWARDED_ALLOW_IPS`          | `127.0.0.1`                          | Comma-separated reverse-proxy IPs whose `X-Forwarded-For` uvicorn trusts. Read by the Docker entrypoint, so it must be a real environment variable (e.g. set in Compose), not only in `backend/.env`. Use `*` only when the backend port is not publicly reachable. |
 | `EASYSHARE_LOG_LEVEL`                    | `INFO`                               | Root log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`).                       |
 | `EASYSHARE_LOG_FORMAT`                   | `console`                            | Log output format: `console` (human-readable) or `json` (structured, for shippers). |
+| `EASYSHARE_AUDIT_RETENTION_DAYS`         | `0`                                  | When greater than `0`, a background task periodically deletes audit-log events older than this many days. `0` (the default) keeps them indefinitely. |
+| `EASYSHARE_AUDIT_PRUNE_INTERVAL_HOURS`   | `24`                                 | How often, in hours, the audit-log retention task runs (only when `EASYSHARE_AUDIT_RETENTION_DAYS` is greater than `0`). |
 
 When running locally, edit `backend/.env` directly (it is loaded automatically
 by the backend on startup) or export the variables in your shell before

@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: str = "console"  # "console" (dev) or "json" (production)
 
+    # Audit log retention. When ``audit_retention_days`` is positive a
+    # background task periodically deletes audit events older than that many
+    # days; 0 (the default) keeps them indefinitely.
+    # ``audit_prune_interval_hours`` controls how often that task runs.
+    audit_retention_days: int = Field(default=0, ge=0)
+    audit_prune_interval_hours: int = Field(default=24, ge=1)
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_cors(cls, value: object) -> object:

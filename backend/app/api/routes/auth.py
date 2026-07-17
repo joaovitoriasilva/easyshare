@@ -62,7 +62,6 @@ def register(request: Request, payload: UserCreate, db: DbSession) -> User:
     db.commit()
     db.refresh(user)
     record_event(
-        db,
         "user.register",
         request=request,
         actor=f"user:{user.id}",
@@ -90,19 +89,19 @@ def login(
         # by measuring how long a failed login takes.
         if user is None:
             dummy_verify()
-        record_event(db, "login.failure", request=request, actor=identifier)
+        record_event("login.failure", request=request, actor=identifier)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     if not user.is_active:
-        record_event(db, "login.blocked", request=request, actor=f"user:{user.id}")
+        record_event("login.blocked", request=request, actor=f"user:{user.id}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive"
         )
     token = create_access_token(user.id)
-    record_event(db, "login.success", request=request, actor=f"user:{user.id}")
+    record_event("login.success", request=request, actor=f"user:{user.id}")
     return Token(access_token=token)
 
 

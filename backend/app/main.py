@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
+
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -18,13 +22,35 @@ from app.core.logging import configure_logging, get_request_id
 from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
 from app.core.rate_limit import limiter, rate_limit_exceeded_handler
 from app.core.static import router as frontend_router
+from app.core.tasks import audit_retention_loop
 
 configure_logging()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Start and cleanly stop background maintenance tasks.
+
+    The audit-retention loop is only started when a positive
+    ``audit_retention_days`` is configured; otherwise there is nothing to run.
+    """
+    task: asyncio.Task[None] | None = None
+    if settings.audit_retention_days > 0:
+        task = asyncio.create_task(audit_retention_loop())
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
 
 app = FastAPI(
     title=settings.app_name,
     version="0.1.2",
     description="Secure file and package sharing API.",
+    lifespan=lifespan,
 )
 
 app.state.limiter = limiter

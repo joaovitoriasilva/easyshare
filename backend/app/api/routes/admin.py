@@ -88,7 +88,6 @@ def update_user(
     db.refresh(user)
 
     record_event(
-        db,
         "admin.user.update",
         request=request,
         actor=f"user:{admin.id}",
@@ -130,7 +129,6 @@ def delete_user(
     db.commit()
 
     record_event(
-        db,
         "admin.user.delete",
         request=request,
         actor=f"user:{admin.id}",
