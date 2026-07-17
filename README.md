@@ -91,7 +91,7 @@ http://localhost:8080 (`docker-compose.yml`, dev) (`docker-compose.example.yml`,
 
 `docker-compose.example.yml` sets `EASYSHARE_ENVIRONMENT: production`, which
 activates a startup guard that refuses to boot with an insecure secret
-(placeholder or shorter than 32 characters) or with debug enabled. The secret is
+(placeholder or shorter than 32 characters). The secret is
 a required Compose variable, so the stack will not start until you supply one:
 
 ```bash
@@ -144,7 +144,6 @@ running with Docker.
 | `EASYSHARE_SECRET_KEY`                   | `change-me-in-production-this-is-not-secure` | Secret used to sign JWT access tokens. **Must** be overridden with a long, random value in production (e.g. `openssl rand -hex 32`). |
 | `EASYSHARE_APP_NAME`                     | `EasyShare`                         | Human-readable application name.                                            |
 | `EASYSHARE_ENVIRONMENT`                  | `development`                       | Deployment environment name (e.g. `development`, `production`).             |
-| `EASYSHARE_DEBUG`                        | `false`                              | Enables debug mode when set to `true`.                                      |
 | `EASYSHARE_ACCESS_TOKEN_EXPIRE_MINUTES`  | `1440`                               | Lifetime of JWT access tokens, in minutes.                                   |
 | `EASYSHARE_SHARE_ACCESS_TOKEN_EXPIRE_MINUTES` | `30`                          | Lifetime, in minutes, of the token authorising restricted-share downloads.  |
 | `EASYSHARE_ALGORITHM`                    | `HS256`                              | JWT signing algorithm.                                                      |

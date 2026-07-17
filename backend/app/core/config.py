@@ -28,7 +28,6 @@ class Settings(BaseSettings):
     # Core
     app_name: str = "EasyShare"
     environment: str = "development"
-    debug: bool = False
 
     # Security
     secret_key: str = Field(
@@ -94,8 +93,6 @@ class Settings(BaseSettings):
                 "EASYSHARE_SECRET_KEY must be a unique value of at least "
                 "32 characters"
             )
-        if self.debug:
-            problems.append("EASYSHARE_DEBUG must be disabled")
         if problems:
             raise ValueError(
                 "Insecure production configuration: " + "; ".join(problems)

@@ -2,8 +2,8 @@ services:
   easyshare:
     build: .
     environment:
-      # Run in production mode so the startup guard enforces a strong secret and
-      # disabled debug, failing fast on insecure configuration.
+      # Run in production mode so the startup guard enforces a strong secret,
+      # failing fast on insecure configuration.
       EASYSHARE_ENVIRONMENT: production
       # Required: Compose refuses to start if this is unset. Use a 32+ character
       # random value, e.g. `export EASYSHARE_SECRET_KEY="$(openssl rand -hex 32)"`.
