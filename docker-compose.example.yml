@@ -22,7 +22,7 @@ services:
       # Store files under opaque random names on disk (true, default) or readable
       # {package_id}/{file_id}_{filename} paths (false). The original filename is
       # always kept in the database regardless.
-      # EASYSHARE_OBFUSCATE_STORAGE_NAMES=true
+      # EASYSHARE_OBFUSCATE_STORAGE_NAMES: "true"
     volumes:
       - app-data:/data
     ports:
