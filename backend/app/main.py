@@ -14,7 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.api.deps import DbSession
 from app.api.routes import admin, audit, auth, packages, public, shares
 from app.core.config import settings
-from app.core.logging import configure_logging
+from app.core.logging import configure_logging, get_request_id
 from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
 from app.core.rate_limit import limiter, rate_limit_exceeded_handler
 from app.core.static import router as frontend_router
@@ -40,6 +40,26 @@ def handle_file_validation_error(
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
         content={"detail": str(exc)},
+    )
+
+
+@app.exception_handler(Exception)
+def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+    """Return a JSON 500 that carries the request id for correlation.
+
+    The traceback itself is logged as ``request.failed`` by
+    ``RequestContextMiddleware``; this handler only shapes the client-facing
+    response so it stays valid JSON and a caller can quote the request id when
+    reporting a problem. The id is read from the ASGI scope (stashed by the
+    middleware) because the request-id contextvar has already been reset by the
+    time this outermost handler runs.
+    """
+    request_id = getattr(request.state, "request_id", None) or get_request_id()
+    headers = {"X-Request-ID": request_id} if request_id else None
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "Internal server error", "request_id": request_id},
+        headers=headers,
     )
 
 

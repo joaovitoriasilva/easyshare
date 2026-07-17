@@ -3,15 +3,11 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
-import zipfile
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
-from starlette.background import BackgroundTask
 
 from app.api.deps import CurrentUser, DbSession, OwnedFile, OwnedPackage
 from app.core.config import settings
@@ -24,6 +20,7 @@ from app.schemas.schemas import (
     PackageStats,
     PackageUpdate,
 )
+from app.services.archive import build_archive_download
 from app.services.storage import FileTooLargeError, storage
 from app.services.validation import sanitize_upload_filename
 
@@ -83,25 +80,39 @@ def get_package_stats(package: OwnedPackage, db: DbSession) -> PackageStats:
     """Aggregate share view/download counters for an owned package.
 
     Counts are derived from the audit log: ``share.view``/``share.access.granted``
-    tally as views, ``share.download`` tallies as downloads, and per-file
-    download counts are summed from each event's ``file_id`` (single-file
-    downloads) or ``file_ids`` (archive downloads) detail.
+    tally as views and ``share.download`` tallies as downloads. The totals come
+    from a single grouped ``COUNT`` in the database rather than loading every
+    row; only the download events' ``detail`` column is then read to attribute
+    per-file counts (from each event's ``file_id`` for single-file downloads or
+    ``file_ids`` for archive downloads).
     """
-    events = db.scalars(
-        select(AuditEvent).where(
+    counts = db.execute(
+        select(AuditEvent.action, func.count())
+        .where(
             AuditEvent.package_id == package.id,
             AuditEvent.action.in_((*_VIEW_ACTIONS, "share.download")),
         )
+        .group_by(AuditEvent.action)
     )
     views = 0
     downloads = 0
+    for action, count in counts:
+        if action in _VIEW_ACTIONS:
+            views += count
+        else:
+            downloads += count
+
     file_downloads: dict[int, int] = {}
-    for event in events:
-        if event.action in _VIEW_ACTIONS:
-            views += 1
+    details = db.scalars(
+        select(AuditEvent.detail).where(
+            AuditEvent.package_id == package.id,
+            AuditEvent.action == "share.download",
+        )
+    )
+    for detail_json in details:
+        if not detail_json:
             continue
-        downloads += 1
-        detail = json.loads(event.detail) if event.detail else {}
+        detail = json.loads(detail_json)
         file_ids = detail.get("file_ids") or (
             [detail["file_id"]] if "file_id" in detail else []
         )
@@ -212,45 +223,7 @@ def download_all_files(package: OwnedPackage) -> FileResponse:
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="The package exceeds the maximum archive size",
         )
-
-    # Deliberately not a context manager (SIM115): closed then streamed by
-    # FileResponse and unlinked in a background task once the response
-    # completes (mirrors public.py::download_shared_archive).
-    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)  # noqa: SIM115
-    tmp_path = tmp.name
-    try:
-        seen_counts: dict[str, int] = {}
-        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as archive:
-            for file in package.files:
-                original = file.filename
-                count = seen_counts.get(original, 0)
-                seen_counts[original] = count + 1
-                if count == 0:
-                    arcname = original
-                else:
-                    stem, dot, ext = original.rpartition(".")
-                    arcname = (
-                        f"{stem} ({count}){dot}{ext}"
-                        if dot
-                        else f"{original} ({count})"
-                    )
-                archive.write(storage.path(file.storage_key), arcname=arcname)
-    except Exception:
-        tmp.close()
-        os.unlink(tmp_path)
-        raise
-    tmp.close()
-
-    safe_name = (
-        "".join(ch for ch in package.name if ch.isprintable() and ch not in '"\\').strip()
-        or "package"
-    )
-    return FileResponse(
-        tmp_path,
-        media_type="application/zip",
-        filename=f"{safe_name}.zip",
-        background=BackgroundTask(os.unlink, tmp_path),
-    )
+    return build_archive_download(package.files, package_name=package.name)
 
 
 @router.delete("/{package_id}/files/{file_id}", response_model=MessageResponse)

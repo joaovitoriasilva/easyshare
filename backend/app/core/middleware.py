@@ -74,6 +74,9 @@ class RequestContextMiddleware:
             return
 
         request_id = Headers(scope=scope).get("x-request-id") or uuid4().hex
+        # Stash on the ASGI scope so the outermost 500 handler can still read the
+        # id after the contextvar below has been reset on the error path.
+        scope.setdefault("state", {})["request_id"] = request_id
         token = set_request_id(request_id)
         start = time.perf_counter()
         status_code = 500

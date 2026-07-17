@@ -2,14 +2,9 @@
 
 from __future__ import annotations
 
-import os
-import tempfile
-import zipfile
-
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
-from starlette.background import BackgroundTask
 
 from app.api.deps import DbSession
 from app.core.audit import record_event
@@ -25,6 +20,7 @@ from app.schemas.schemas import (
     PublicShareRead,
     ShareAccessRequest,
 )
+from app.services.archive import build_archive_download
 from app.services.storage import storage
 
 router = APIRouter(prefix="/s", tags=["public"])
@@ -272,47 +268,4 @@ def download_shared_archive(
         package_id=share.package_id,
         detail={"file_ids": [file.id for file in selected], "archive": True},
     )
-
-    # Deliberately not a context manager (SIM115): the handle is written, then
-    # closed, then streamed by FileResponse and unlinked in a background task
-    # once the response completes, so its lifetime outlives this function.
-    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)  # noqa: SIM115
-    tmp_path = tmp.name
-    try:
-        seen_counts: dict[str, int] = {}
-        # ZIP_STORED (no compression): uploaded files are usually already
-        # compressed (images, video, PDFs, archives), so DEFLATE would mostly
-        # burn CPU and hold the worker thread for negligible size savings.
-        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as archive:
-            for file in selected:
-                original = file.filename
-                count = seen_counts.get(original, 0)
-                seen_counts[original] = count + 1
-                if count == 0:
-                    arcname = original
-                else:
-                    stem, dot, ext = original.rpartition(".")
-                    arcname = (
-                        f"{stem} ({count}){dot}{ext}"
-                        if dot
-                        else f"{original} ({count})"
-                    )
-                archive.write(storage.path(file.storage_key), arcname=arcname)
-    except Exception:
-        tmp.close()
-        os.unlink(tmp_path)
-        raise
-    tmp.close()
-
-    safe_name = (
-        "".join(
-            ch for ch in share.package.name if ch.isprintable() and ch not in '"\\'
-        ).strip()
-        or "package"
-    )
-    return FileResponse(
-        tmp_path,
-        media_type="application/zip",
-        filename=f"{safe_name}.zip",
-        background=BackgroundTask(os.unlink, tmp_path),
-    )
+    return build_archive_download(selected, package_name=share.package.name)

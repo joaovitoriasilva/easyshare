@@ -9,6 +9,7 @@ from app.api.deps import get_db
 from app.main import app
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import sessionmaker
 
 
 def test_health_ok(client: TestClient) -> None:
@@ -42,4 +43,37 @@ def test_ready_reports_503_when_db_unreachable(client: TestClient) -> None:
         assert resp.status_code == 503
     finally:
         del app.dependency_overrides[get_db]
+
+
+class _ExplodingSession:
+    """A DB session whose execute() raises a non-``SQLAlchemyError``.
+
+    The readiness probe only catches ``SQLAlchemyError``, so this propagates
+    uncaught and exercises the generic 500 exception handler instead.
+    """
+
+    def execute(self, *args: object, **kwargs: object) -> NoReturn:
+        raise RuntimeError("unexpected failure")
+
+
+def test_unhandled_error_returns_json_500_with_request_id(
+    db_sessionmaker: sessionmaker,
+) -> None:
+    """An uncaught exception yields a JSON 500 carrying the request id."""
+
+    def override_get_db() -> Generator[_ExplodingSession]:
+        yield _ExplodingSession()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.get("/api/ready")
+        assert resp.status_code == 500
+        body = resp.json()
+        assert body["detail"] == "Internal server error"
+        assert body["request_id"]
+        assert resp.headers["x-request-id"] == body["request_id"]
+    finally:
+        del app.dependency_overrides[get_db]
+
 
