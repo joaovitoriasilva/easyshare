@@ -43,12 +43,33 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = "sqlite:///./easyshare.db"
+    # Connection pool sizing, applied only to server databases (PostgreSQL,
+    # MySQL, ...); ignored for SQLite, which does not pool the same way. The
+    # defaults roughly match the ASGI threadpool that serves the sync routes so
+    # concurrent requests do not queue waiting for a free connection.
+    db_pool_size: int = Field(default=20, ge=1)
+    db_max_overflow: int = Field(default=20, ge=0)
+    db_pool_timeout: int = Field(default=30, ge=1)
 
     # File storage
     storage_dir: Path = Path("./storage")
     max_file_size: int = 100 * 1024 * 1024  # 100 MB per file
     max_files_per_package: int = 50
     max_archive_size: int = 5 * 1024 * 1024 * 1024  # 5 GiB per zip download
+    # Upper bound on how many zip archives may be built concurrently. Each build
+    # holds a worker thread for its whole duration, so without a cap a handful
+    # of large archive downloads could exhaust the threadpool and stall every
+    # other request. Excess requests get 503 (retry) instead of degrading the
+    # whole service.
+    max_concurrent_archive_builds: int = Field(default=4, ge=1)
+
+    # Storage quotas, in bytes; 0 means unlimited.
+    # ``storage_quota_total`` caps the whole instance's on-disk usage.
+    # ``storage_quota_per_user`` is the budget assigned to each user's
+    # ``storage_quota`` when their account is created (existing users are
+    # backfilled by migration); administrators can change it per user afterwards.
+    storage_quota_total: int = Field(default=0, ge=0)
+    storage_quota_per_user: int = Field(default=0, ge=0)
     # When enabled (default) stored files are given opaque random names on disk
     # so the filesystem reveals nothing about their origin or contents. Disable
     # to store files under a readable ``{package_id}/{file_id}_{filename}`` path,

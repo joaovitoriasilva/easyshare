@@ -27,7 +27,14 @@ class UserRead(BaseModel):
     username: str
     is_active: bool
     is_admin: bool
+    storage_quota: int
     created_at: datetime
+
+
+class AdminUserRead(UserRead):
+    """User view for administrators, augmented with current storage usage."""
+
+    storage_used: int = 0
 
 
 class UserAdminUpdate(BaseModel):
@@ -37,13 +44,27 @@ class UserAdminUpdate(BaseModel):
     email: EmailStr | None = None
     is_active: bool | None = None
     is_admin: bool | None = None
+    # Per-user storage budget in bytes; 0 = unlimited. Omit to leave unchanged.
+    storage_quota: int | None = Field(default=None, ge=0)
 
 
 class UserPage(BaseModel):
-    items: list[UserRead]
+    items: list[AdminUserRead]
     total: int
     limit: int
     offset: int
+
+
+class BulkQuotaUpdate(BaseModel):
+    """Set the same storage quota (bytes; 0 = unlimited) for every user."""
+
+    storage_quota: int = Field(ge=0)
+
+
+class BulkQuotaResult(BaseModel):
+    """How many user rows a bulk quota update affected."""
+
+    updated: int
 
 
 class Token(BaseModel):

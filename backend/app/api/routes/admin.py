@@ -2,16 +2,34 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
+from sqlalchemy.engine import CursorResult
 
 from app.api.deps import AdminUser, DbSession
 from app.core.audit import record_event
-from app.models.models import User
-from app.schemas.schemas import MessageResponse, UserAdminUpdate, UserPage, UserRead
+from app.models.models import Package, PackageFile, User
+from app.schemas.schemas import (
+    AdminUserRead,
+    BulkQuotaResult,
+    BulkQuotaUpdate,
+    MessageResponse,
+    UserAdminUpdate,
+    UserPage,
+)
+from app.services.quota import user_storage_used
 from app.services.storage import storage
 
 router = APIRouter(prefix="/admin/users", tags=["admin"])
+
+
+def _admin_user_read(user: User, storage_used: int) -> AdminUserRead:
+    """Build the admin view of a user with its current storage usage."""
+    view = AdminUserRead.model_validate(user)
+    view.storage_used = storage_used
+    return view
 
 
 @router.get("", response_model=UserPage)
@@ -23,26 +41,71 @@ def list_users(
 ) -> UserPage:
     """List all registered users, newest first (administrators only)."""
     total = db.scalar(select(func.count()).select_from(User)) or 0
-    users = db.scalars(
-        select(User).order_by(User.created_at.desc()).limit(limit).offset(offset)
+    users = list(
+        db.scalars(
+            select(User)
+            .order_by(User.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
     )
+    # Aggregate storage usage for just the listed users in one grouped query
+    # (avoids a per-user aggregate on paginated listings).
+    usage: dict[int, int] = {}
+    user_ids = [user.id for user in users]
+    if user_ids:
+        rows = db.execute(
+            select(Package.owner_id, func.coalesce(func.sum(PackageFile.size), 0))
+            .select_from(Package)
+            .join(PackageFile, PackageFile.package_id == Package.id)
+            .where(Package.owner_id.in_(user_ids))
+            .group_by(Package.owner_id)
+        )
+        usage = {owner_id: int(used) for owner_id, used in rows}
     return UserPage(
-        items=[UserRead.model_validate(user) for user in users],
+        items=[_admin_user_read(user, usage.get(user.id, 0)) for user in users],
         total=total,
         limit=limit,
         offset=offset,
     )
 
 
-@router.patch("/{user_id}", response_model=UserRead)
+@router.patch("/quota", response_model=BulkQuotaResult)
+def update_all_quotas(
+    payload: BulkQuotaUpdate,
+    db: DbSession,
+    admin: AdminUser,
+    request: Request,
+) -> BulkQuotaResult:
+    """Set every user's storage quota to the same value (0 = unlimited).
+
+    Overwrites any per-user quotas. It does not change the default applied to
+    future accounts, which comes from ``EASYSHARE_STORAGE_QUOTA_PER_USER``.
+
+    Registered before ``/{user_id}`` so the literal ``quota`` segment is not
+    captured as a (non-integer) user id.
+    """
+    result = db.execute(update(User).values(storage_quota=payload.storage_quota))
+    db.commit()
+    updated = cast("CursorResult[Any]", result).rowcount or 0
+    record_event(
+        "admin.users.quota.bulk_update",
+        request=request,
+        actor=f"user:{admin.id}",
+        detail={"storage_quota": payload.storage_quota, "count": updated},
+    )
+    return BulkQuotaResult(updated=updated)
+
+
+@router.patch("/{user_id}", response_model=AdminUserRead)
 def update_user(
     user_id: int,
     payload: UserAdminUpdate,
     db: DbSession,
     admin: AdminUser,
     request: Request,
-) -> User:
-    """Update a user's profile, active state or admin rights.
+) -> AdminUserRead:
+    """Update a user's profile, active state, admin rights or storage quota.
 
     Administrators cannot revoke their own admin rights or deactivate their own
     account, so an instance always keeps at least one active administrator.
@@ -94,7 +157,7 @@ def update_user(
         target=f"user:{user.id}",
         detail={key: str(value) for key, value in data.items()},
     )
-    return user
+    return _admin_user_read(user, user_storage_used(db, user.id))
 
 
 @router.delete("/{user_id}", response_model=MessageResponse)

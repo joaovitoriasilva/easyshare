@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from typing import NoReturn
 
+import pytest
 from app.api.deps import get_db
 from app.main import app
 from fastapi.testclient import TestClient
@@ -22,6 +23,20 @@ def test_ready_ok(client: TestClient) -> None:
     resp = client.get("/api/ready")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ready"}
+
+
+def test_ready_reports_503_when_storage_unwritable(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A detached or read-only storage volume surfaces as a 503."""
+    from app.services.storage import storage
+
+    def _boom() -> NoReturn:
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(storage, "check_writable", _boom)
+    resp = client.get("/api/ready")
+    assert resp.status_code == 503
 
 
 class _BrokenSession:

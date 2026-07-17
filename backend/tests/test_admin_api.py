@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+
 from fastapi.testclient import TestClient
 
 
@@ -149,4 +151,77 @@ def test_non_admin_cannot_delete_user(client: TestClient) -> None:
     bob_headers = _login(client, "bob")
 
     resp = client.delete(f"/api/admin/users/{admin['id']}", headers=bob_headers)
+    assert resp.status_code == 403
+
+
+def test_admin_can_set_quota_and_see_usage(client: TestClient) -> None:
+    admin_headers = _login_after_register(client, "admin", "admin@example.com")
+    bob = _register(client, "bob", "bob@example.com")
+
+    updated = client.patch(
+        f"/api/admin/users/{bob['id']}",
+        json={"storage_quota": 12345},
+        headers=admin_headers,
+    )
+    assert updated.status_code == 200
+    body = updated.json()
+    assert body["storage_quota"] == 12345
+    assert body["storage_used"] == 0
+
+    listing = client.get("/api/admin/users", headers=admin_headers).json()
+    bob_row = next(u for u in listing["items"] if u["username"] == "bob")
+    assert bob_row["storage_quota"] == 12345
+    assert bob_row["storage_used"] == 0
+
+
+def test_admin_quota_override_is_enforced(client: TestClient) -> None:
+    admin_headers = _login_after_register(client, "admin", "admin@example.com")
+    bob = _register(client, "bob", "bob@example.com")
+    bob_headers = _login(client, "bob")
+
+    client.patch(
+        f"/api/admin/users/{bob['id']}",
+        json={"storage_quota": 4},
+        headers=admin_headers,
+    )
+    pkg_id = client.post(
+        "/api/packages",
+        json={"name": "p", "description": None},
+        headers=bob_headers,
+    ).json()["id"]
+    resp = client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("a.txt", io.BytesIO(b"toolarge"), "text/plain")},
+        headers=bob_headers,
+    )
+    assert resp.status_code == 413
+
+
+def test_admin_can_set_all_quotas(client: TestClient) -> None:
+    admin_headers = _login_after_register(client, "admin", "admin@example.com")
+    _register(client, "bob", "bob@example.com")
+    _register(client, "carol", "carol@example.com")
+
+    resp = client.patch(
+        "/api/admin/users/quota",
+        json={"storage_quota": 5000},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["updated"] == 3
+
+    listing = client.get("/api/admin/users", headers=admin_headers).json()
+    assert all(u["storage_quota"] == 5000 for u in listing["items"])
+
+
+def test_non_admin_cannot_set_all_quotas(client: TestClient) -> None:
+    _register(client, "admin", "admin@example.com")
+    _register(client, "bob", "bob@example.com")
+    bob_headers = _login(client, "bob")
+
+    resp = client.patch(
+        "/api/admin/users/quota",
+        json={"storage_quota": 5000},
+        headers=bob_headers,
+    )
     assert resp.status_code == 403

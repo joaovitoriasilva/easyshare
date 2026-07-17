@@ -2,18 +2,19 @@
 import { computed, onMounted, ref } from "vue";
 import { adminApi } from "@/api";
 import { ApiError } from "@/api/client";
-import type { AdminUserUpdate, User } from "@/api/types";
+import type { AdminUser, AdminUserUpdate } from "@/api/types";
 import { useAuthStore } from "@/stores/auth";
 import { useToasts } from "@/composables/useToasts";
 import { useConfirm } from "@/composables/useConfirm";
 import { isValidEmail } from "@/lib/validation";
+import { formatBytes } from "@/lib/format";
 import { Button, Input, Tooltip } from "@/components/ui";
 
 const auth = useAuthStore();
 const toast = useToasts();
 const { confirm } = useConfirm();
 
-const users = ref<User[]>([]);
+const users = ref<AdminUser[]>([]);
 const total = ref(0);
 const offset = ref(0);
 const loading = ref(true);
@@ -22,11 +23,29 @@ const limit = 50;
 const editingId = ref<number | null>(null);
 const editUsername = ref("");
 const editEmail = ref("");
+const editQuotaMb = ref("");
+const bulkQuotaMb = ref("");
 
 const editEmailValid = computed(() => isValidEmail(editEmail.value));
 const showEditEmailError = computed(
   () => editEmail.value.length > 0 && !editEmailValid.value,
 );
+
+/** A storage-quota MB input is valid when it is a non-negative number. */
+function isValidMb(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (trimmed === "") {
+    return false;
+  }
+  const mb = Number(trimmed);
+  return Number.isFinite(mb) && mb >= 0;
+}
+function mbToBytes(raw: string): number {
+  return Math.round(Number(raw.trim()) * 1024 * 1024);
+}
+
+const editQuotaValid = computed(() => isValidMb(editQuotaMb.value));
+const bulkQuotaValid = computed(() => isValidMb(bulkQuotaMb.value));
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -41,11 +60,19 @@ async function load(): Promise<void> {
   }
 }
 
-function isSelf(user: User): boolean {
+function isSelf(user: AdminUser): boolean {
   return auth.user?.id === user.id;
 }
 
-async function patch(user: User, changes: AdminUserUpdate): Promise<void> {
+/** Human label for a user's quota: a size or "Unlimited" (0). */
+function quotaLabel(user: AdminUser): string {
+  if (user.storage_quota === 0) {
+    return "Unlimited";
+  }
+  return formatBytes(user.storage_quota);
+}
+
+async function patch(user: AdminUser, changes: AdminUserUpdate): Promise<void> {
   try {
     const updated = await adminApi.updateUser(user.id, changes);
     const index = users.value.findIndex((u) => u.id === user.id);
@@ -58,15 +85,15 @@ async function patch(user: User, changes: AdminUserUpdate): Promise<void> {
   }
 }
 
-function toggleAdmin(user: User): void {
+function toggleAdmin(user: AdminUser): void {
   patch(user, { is_admin: !user.is_admin });
 }
 
-function toggleActive(user: User): void {
+function toggleActive(user: AdminUser): void {
   patch(user, { is_active: !user.is_active });
 }
 
-async function deleteUser(user: User): Promise<void> {
+async function deleteUser(user: AdminUser): Promise<void> {
   const confirmed = await confirm({
     title: "Delete user",
     message: `"${user.username}" and all of their packages and files will be permanently deleted.`,
@@ -86,19 +113,43 @@ async function deleteUser(user: User): Promise<void> {
   }
 }
 
-function startEdit(user: User): void {
+function startEdit(user: AdminUser): void {
   editingId.value = user.id;
   editUsername.value = user.username;
   editEmail.value = user.email;
+  editQuotaMb.value = String(Math.round(user.storage_quota / (1024 * 1024)));
 }
 
 function cancelEdit(): void {
   editingId.value = null;
 }
 
-async function saveEdit(user: User): Promise<void> {
-  await patch(user, { username: editUsername.value, email: editEmail.value });
+async function saveEdit(user: AdminUser): Promise<void> {
+  await patch(user, {
+    username: editUsername.value,
+    email: editEmail.value,
+    storage_quota: mbToBytes(editQuotaMb.value),
+  });
   editingId.value = null;
+}
+
+async function applyBulkQuota(): Promise<void> {
+  const confirmed = await confirm({
+    title: "Set quota for all users",
+    message: `Every user's storage quota will be set to ${bulkQuotaMb.value.trim()} MB (0 = unlimited). This overwrites individual quotas.`,
+    confirmText: "Apply to all",
+    destructive: true,
+  });
+  if (!confirmed) {
+    return;
+  }
+  try {
+    const { updated } = await adminApi.setAllQuotas(mbToBytes(bulkQuotaMb.value));
+    toast.success(`Updated ${updated} user(s)`);
+    await load();
+  } catch (err) {
+    toast.error(err instanceof ApiError ? err.message : "Failed to update quotas");
+  }
 }
 
 function next(): void {
@@ -125,6 +176,30 @@ onMounted(load);
       <p class="text-muted-foreground">Manage registered users and their roles</p>
     </div>
 
+    <div
+      class="flex flex-col gap-3 rounded-md border bg-card p-4 sm:flex-row sm:items-end sm:justify-between"
+    >
+      <div class="space-y-1">
+        <p class="text-sm font-medium">Set quota for all users</p>
+        <p class="text-xs text-muted-foreground">
+          Applies to every user; 0 = unlimited. Overwrites individual quotas.
+        </p>
+      </div>
+      <div class="flex items-center gap-2">
+        <Input
+          v-model="bulkQuotaMb"
+          type="number"
+          min="0"
+          placeholder="MB"
+          class="h-9 w-28"
+        />
+        <span class="text-sm text-muted-foreground">MB</span>
+        <Button size="sm" :disabled="!bulkQuotaValid" @click="applyBulkQuota">
+          Apply to all
+        </Button>
+      </div>
+    </div>
+
     <p v-if="loading" class="text-muted-foreground">Loading...</p>
     <template v-else>
       <div class="overflow-x-auto rounded-md border">
@@ -135,6 +210,7 @@ onMounted(load);
               <th class="p-3 font-medium">Email</th>
               <th class="p-3 font-medium">Role</th>
               <th class="p-3 font-medium">Status</th>
+              <th class="p-3 font-medium">Storage</th>
               <th class="p-3 text-right font-medium">Actions</th>
             </tr>
           </thead>
@@ -174,9 +250,24 @@ onMounted(load);
                 </span>
               </td>
               <td class="p-3">
+                <div v-if="editingId === user.id" class="flex items-center gap-1">
+                  <Input
+                    v-model="editQuotaMb"
+                    type="number"
+                    min="0"
+                    class="h-8 w-20"
+                    title="Storage quota in MB. 0 = unlimited."
+                  />
+                  <span class="text-xs text-muted-foreground">MB</span>
+                </div>
+                <span v-else class="whitespace-nowrap text-muted-foreground">
+                  {{ formatBytes(user.storage_used) }} / {{ quotaLabel(user) }}
+                </span>
+              </td>
+              <td class="p-3">
                 <div class="flex justify-end gap-2">
                   <template v-if="editingId === user.id">
-                    <Button size="sm" :disabled="!editEmailValid" @click="saveEdit(user)">Save</Button>
+                    <Button size="sm" :disabled="!editEmailValid || !editQuotaValid" @click="saveEdit(user)">Save</Button>
                     <Button variant="ghost" size="sm" @click="cancelEdit">Cancel</Button>
                   </template>
                   <template v-else>
@@ -212,7 +303,7 @@ onMounted(load);
               </td>
             </tr>
             <tr v-if="users.length === 0">
-              <td colspan="5" class="p-4 text-center text-muted-foreground">
+              <td colspan="6" class="p-4 text-center text-muted-foreground">
                 No users.
               </td>
             </tr>

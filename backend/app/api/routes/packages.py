@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import json
-
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession, OwnedFile, OwnedPackage
 from app.core.config import settings
+from app.core.rate_limit import EXPENSIVE, limiter
 from app.models.models import AuditEvent, Package, PackageFile
 from app.schemas.schemas import (
     MessageResponse,
@@ -20,7 +19,8 @@ from app.schemas.schemas import (
     PackageStats,
     PackageUpdate,
 )
-from app.services.archive import build_archive_download
+from app.services.archive import build_archive_download, validate_archive_request
+from app.services.quota import total_storage_used, user_storage_used
 from app.services.storage import FileTooLargeError, storage
 from app.services.validation import sanitize_upload_filename
 
@@ -79,12 +79,11 @@ def get_package(package: OwnedPackage) -> Package:
 def get_package_stats(package: OwnedPackage, db: DbSession) -> PackageStats:
     """Aggregate share view/download counters for an owned package.
 
-    Counts are derived from the audit log: ``share.view``/``share.access.granted``
-    tally as views and ``share.download`` tallies as downloads. The totals come
-    from a single grouped ``COUNT`` in the database rather than loading every
-    row; only the download events' ``detail`` column is then read to attribute
-    per-file counts (from each event's ``file_id`` for single-file downloads or
-    ``file_ids`` for archive downloads).
+    View and download totals come from a single grouped ``COUNT`` over the
+    audit log. Per-file download counts are read straight from each file's
+    denormalised ``download_count`` column (kept current on every share
+    download), so the endpoint no longer scans and JSON-parses every download
+    event.
     """
     counts = db.execute(
         select(AuditEvent.action, func.count())
@@ -102,22 +101,15 @@ def get_package_stats(package: OwnedPackage, db: DbSession) -> PackageStats:
         else:
             downloads += count
 
-    file_downloads: dict[int, int] = {}
-    details = db.scalars(
-        select(AuditEvent.detail).where(
-            AuditEvent.package_id == package.id,
-            AuditEvent.action == "share.download",
+    file_downloads = {
+        file_id: count
+        for file_id, count in db.execute(
+            select(PackageFile.id, PackageFile.download_count).where(
+                PackageFile.package_id == package.id,
+                PackageFile.download_count > 0,
+            )
         )
-    )
-    for detail_json in details:
-        if not detail_json:
-            continue
-        detail = json.loads(detail_json)
-        file_ids = detail.get("file_ids") or (
-            [detail["file_id"]] if "file_id" in detail else []
-        )
-        for file_id in file_ids:
-            file_downloads[file_id] = file_downloads.get(file_id, 0) + 1
+    }
     return PackageStats(views=views, downloads=downloads, file_downloads=file_downloads)
 
 
@@ -165,6 +157,28 @@ def upload_file(
 
     safe_filename = sanitize_upload_filename(file.filename)
 
+    # The effective write cap is the smallest of the per-file limit and any
+    # remaining per-user / instance-wide storage quota (0 = unlimited). Enforcing
+    # it as the streaming ``max_bytes`` means an over-quota upload is aborted
+    # mid-write instead of being fully written and then rejected.
+    limits: list[tuple[int, str]] = [
+        (settings.max_file_size, "File exceeds the maximum allowed size")
+    ]
+    per_user_quota = package.owner.storage_quota
+    if per_user_quota > 0:
+        remaining_user = per_user_quota - user_storage_used(db, package.owner_id)
+        limits.append((remaining_user, "Upload would exceed your storage quota"))
+    if settings.storage_quota_total > 0:
+        remaining_total = settings.storage_quota_total - total_storage_used(db)
+        limits.append(
+            (remaining_total, "Upload would exceed the server storage limit")
+        )
+    cap, cap_message = min(limits, key=lambda item: item[0])
+    if cap <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=cap_message
+        )
+
     # Persist the row first (without committing) so that, when obfuscation is
     # disabled, the readable storage key can embed the file's database id. In
     # obfuscated mode the provisional random key generated here is already the
@@ -185,14 +199,12 @@ def upload_file(
         )
 
     try:
-        size = storage.save(
-            record.storage_key, file.file, max_bytes=settings.max_file_size
-        )
+        size = storage.save(record.storage_key, file.file, max_bytes=cap)
     except FileTooLargeError as exc:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="File exceeds the maximum allowed size",
+            detail=cap_message,
         ) from exc
 
     record.size = size
@@ -212,18 +224,12 @@ def download_owned_file(record: OwnedFile) -> FileResponse:
 
 
 @router.get("/{package_id}/download")
-def download_all_files(package: OwnedPackage) -> FileResponse:
+@limiter.limit(EXPENSIVE)
+def download_all_files(package: OwnedPackage, request: Request) -> FileResponse:
     """Download every file in an owned package as a single zip archive."""
-    if not package.files:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="No files to download"
-        )
-    if sum(file.size for file in package.files) > settings.max_archive_size:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="The package exceeds the maximum archive size",
-        )
-    return build_archive_download(package.files, package_name=package.name)
+    files = list(package.files)
+    validate_archive_request(files, empty_detail="No files to download")
+    return build_archive_download(files, package_name=package.name)
 
 
 @router.delete("/{package_id}/files/{file_id}", response_model=MessageResponse)

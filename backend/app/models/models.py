@@ -18,11 +18,17 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.config import settings
 from app.db.session import Base
 
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _default_storage_quota() -> int:
+    """Per-user storage budget for a new account, from the current config."""
+    return settings.storage_quota_per_user
 
 
 class ShareVisibility(str, enum.Enum):
@@ -43,6 +49,12 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Per-user storage budget in bytes, snapshotted from the configured default
+    # (``storage_quota_per_user``) when the account is created; 0 means
+    # unlimited. Administrators can adjust it per user afterwards.
+    storage_quota: Mapped[int] = mapped_column(
+        BigInteger, default=_default_storage_quota, nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     packages: Mapped[list[Package]] = relationship(
@@ -92,6 +104,10 @@ class PackageFile(Base):
     # limit (~2.1 GB) on databases like PostgreSQL where INTEGER is 4 bytes.
     size: Mapped[int] = mapped_column(BigInteger, default=0)
     storage_key: Mapped[str] = mapped_column(String(255), unique=True)
+    # Denormalised download counter, incremented on each share download so the
+    # per-file stats can be read in O(files) instead of scanning and JSON-
+    # parsing the whole audit log.
+    download_count: Mapped[int] = mapped_column(BigInteger, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     package: Mapped[Package] = relationship(back_populates="files")

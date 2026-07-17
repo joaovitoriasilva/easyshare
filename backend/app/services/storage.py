@@ -108,6 +108,20 @@ class StorageService:
         """Return the absolute path for a stored file."""
         return self._resolve(storage_key)
 
+    def check_writable(self) -> None:
+        """Verify the storage directory exists and is writable.
+
+        Used by the readiness probe so a detached or read-only data volume is
+        reported as not-ready instead of silently failing uploads. Raises
+        ``OSError`` if the directory cannot be created or written to.
+        """
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        probe = self.base_dir / f".healthcheck-{secrets.token_hex(8)}"
+        try:
+            probe.write_bytes(b"")
+        finally:
+            probe.unlink(missing_ok=True)
+
     def delete(self, storage_key: str) -> None:
         """Delete a stored file, pruning an emptied package subdirectory."""
         target = self._resolve(storage_key)

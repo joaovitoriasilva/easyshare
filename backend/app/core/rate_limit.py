@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 DEFAULT = "120/minute"
 #: Sensitive operations: login, registration and restricted-share unlock.
 SENSITIVE = "10/minute"
+#: Single-file downloads: heavier than a normal API call but still cheap.
+DOWNLOAD = "60/minute"
+#: Expensive operations that build a zip archive on the fly. Kept low because
+#: each one holds a worker thread and can produce a multi-gigabyte file.
+EXPENSIVE = "10/minute"
 
 
 def rate_limit_key(request: Request) -> str:

@@ -9,14 +9,46 @@ from __future__ import annotations
 
 import os
 import tempfile
+import threading
 import zipfile
 from collections.abc import Iterable
 
+from fastapi import HTTPException, status
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
+from app.core.config import settings
 from app.models.models import PackageFile
 from app.services.storage import storage
+
+# Bounds how many archives may be built at once. Each build holds a worker
+# thread for its full duration (see ``build_archive_download``), so an
+# unbounded number of concurrent large downloads could consume the entire
+# threadpool and stall every other request. Requests beyond the limit get a
+# 503 telling them to retry, which keeps the rest of the API responsive.
+_build_semaphore = threading.BoundedSemaphore(
+    settings.max_concurrent_archive_builds
+)
+
+
+def validate_archive_request(
+    files: list[PackageFile], *, empty_detail: str
+) -> None:
+    """Reject an archive request that is empty or exceeds the size cap.
+
+    Raises:
+        HTTPException: 404 when ``files`` is empty, 413 when their combined
+            size exceeds ``max_archive_size``.
+    """
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=empty_detail
+        )
+    if sum(file.size for file in files) > settings.max_archive_size:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="The selected files exceed the maximum archive size",
+        )
 
 
 def _unique_arcname(filename: str, seen_counts: dict[str, int]) -> str:
@@ -48,7 +80,28 @@ def build_archive_download(
     The temporary file is written, closed, streamed by ``FileResponse`` and
     removed by a background task once the response completes, so its lifetime
     deliberately outlives this function.
+
+    A bounded semaphore caps how many builds run concurrently; when the cap is
+    reached the request is rejected with 503 rather than piling onto the
+    threadpool. The semaphore is held only for the CPU/IO-heavy build phase (it
+    is released before returning); the subsequent streaming is handled on the
+    event loop and does not occupy a worker thread.
     """
+    if not _build_semaphore.acquire(blocking=False):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Server is busy preparing downloads, please retry shortly",
+            headers={"Retry-After": "5"},
+        )
+    try:
+        return _build_archive(files, package_name=package_name)
+    finally:
+        _build_semaphore.release()
+
+
+def _build_archive(
+    files: Iterable[PackageFile], *, package_name: str
+) -> FileResponse:
     # Not a context manager (SIM115): the handle outlives this function — it is
     # closed here but streamed and unlinked only after the response is sent.
     tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)  # noqa: SIM115

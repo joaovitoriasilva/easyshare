@@ -23,6 +23,7 @@ from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddlew
 from app.core.rate_limit import limiter, rate_limit_exceeded_handler
 from app.core.static import router as frontend_router
 from app.core.tasks import audit_retention_loop
+from app.services.storage import storage
 
 configure_logging()
 
@@ -124,13 +125,20 @@ def health() -> dict[str, str]:
 
 @app.get("/api/ready", tags=["health"])
 def ready(db: DbSession) -> dict[str, str]:
-    """Readiness probe: the app can actually serve traffic (DB reachable)."""
+    """Readiness probe: the app can actually serve traffic (DB + storage)."""
     try:
         db.execute(text("SELECT 1"))
     except SQLAlchemyError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database unavailable",
+        ) from exc
+    try:
+        storage.check_writable()
+    except OSError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Storage unavailable",
         ) from exc
     return {"status": "ready"}
 

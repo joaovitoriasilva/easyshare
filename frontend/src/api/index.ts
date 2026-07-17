@@ -1,8 +1,10 @@
 import { api, setToken } from "./client";
 import type {
+  AdminUser,
   AdminUserUpdate,
   AuditPage,
   AuthConfig,
+  BulkQuotaResult,
   Package,
   PackageStats,
   PublicShare,
@@ -204,8 +206,14 @@ export const adminApi = {
     q.set("offset", String(params.offset ?? 0));
     return api.request<UserPage>(`/admin/users?${q.toString()}`);
   },
-  updateUser(id: number, patch: AdminUserUpdate): Promise<User> {
-    return api.request<User>(`/admin/users/${id}`, { method: "PATCH", body: patch });
+  updateUser(id: number, patch: AdminUserUpdate): Promise<AdminUser> {
+    return api.request<AdminUser>(`/admin/users/${id}`, { method: "PATCH", body: patch });
+  },
+  setAllQuotas(storageQuota: number): Promise<BulkQuotaResult> {
+    return api.request<BulkQuotaResult>("/admin/users/quota", {
+      method: "PATCH",
+      body: { storage_quota: storageQuota },
+    });
   },
   deleteUser(id: number): Promise<void> {
     return api.request<void>(`/admin/users/${id}`, { method: "DELETE" });

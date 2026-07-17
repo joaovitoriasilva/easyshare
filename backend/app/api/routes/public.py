@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.api.deps import DbSession
 from app.core.audit import record_event
-from app.core.config import settings
-from app.core.rate_limit import SENSITIVE, limiter
+from app.core.rate_limit import DOWNLOAD, EXPENSIVE, SENSITIVE, limiter
 from app.core.security import (
     create_share_access_token,
     decode_share_access_token,
@@ -20,7 +21,7 @@ from app.schemas.schemas import (
     PublicShareRead,
     ShareAccessRequest,
 )
-from app.services.archive import build_archive_download
+from app.services.archive import build_archive_download, validate_archive_request
 from app.services.storage import storage
 
 router = APIRouter(prefix="/s", tags=["public"])
@@ -35,6 +36,12 @@ def _get_active_share(db: DbSession, token: str) -> Share:
     return share
 
 
+def _email_allowed(share: Share, email: str) -> bool:
+    """Return whether ``email`` is on a restricted share's allow-list."""
+    allowed = {entry.email for entry in share.allowed_emails}
+    return email.strip().lower() in allowed
+
+
 def _authorize_email(share: Share, email: str | None) -> None:
     """Ensure ``email`` may access a restricted share; no-op for public shares."""
     if share.visibility == ShareVisibility.PUBLIC:
@@ -44,8 +51,7 @@ def _authorize_email(share: Share, email: str | None) -> None:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="This share requires a valid email address",
         )
-    allowed = {entry.email for entry in share.allowed_emails}
-    if email.strip().lower() not in allowed:
+    if not _email_allowed(share, email):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This email is not allowed to access the share",
@@ -72,8 +78,7 @@ def _authorize_download(share: Share, access_token: str | None) -> str | None:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="This share requires a valid access token",
         )
-    allowed = {entry.email for entry in share.allowed_emails}
-    if email.strip().lower() not in allowed:
+    if not _email_allowed(share, email):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This email is not allowed to access the share",
@@ -171,7 +176,32 @@ def _resolve_file(share: Share, file_id: int) -> PackageFile:
     )
 
 
+def _authorize_download_or_deny(
+    share: Share,
+    access: str | None,
+    request: Request,
+    *,
+    denied_detail: dict[str, Any] | None = None,
+) -> str | None:
+    """Authorize a download, auditing a denial before re-raising on failure."""
+    try:
+        return _authorize_download(share, access)
+    except HTTPException as exc:
+        detail: dict[str, Any] = {"status": exc.status_code}
+        if denied_detail:
+            detail.update(denied_detail)
+        record_event(
+            "share.download.denied",
+            request=request,
+            target=f"share:{share.token[:8]}",
+            package_id=share.package_id,
+            detail=detail,
+        )
+        raise
+
+
 @router.get("/{token}/files/{file_id}/download")
+@limiter.limit(DOWNLOAD)
 def download_shared_file(
     token: str,
     file_id: int,
@@ -181,34 +211,38 @@ def download_shared_file(
 ) -> FileResponse:
     """Download a single file from a share."""
     share = _get_active_share(db, token)
-    try:
-        email = _authorize_download(share, access)
-    except HTTPException as exc:
-        record_event(
-            "share.download.denied",
-            request=request,
-            target=f"share:{token[:8]}",
-            package_id=share.package_id,
-            detail={"status": exc.status_code, "file_id": file_id},
-        )
-        raise
+    email = _authorize_download_or_deny(
+        share, access, request, denied_detail={"file_id": file_id}
+    )
     record = _resolve_file(share, file_id)
+    # Capture attributes before the counter commit expires the ORM instance.
+    filename = record.filename
+    storage_key = record.storage_key
+    content_type = record.content_type
+    package_id = share.package_id
+    db.execute(
+        update(PackageFile)
+        .where(PackageFile.id == record.id)
+        .values(download_count=PackageFile.download_count + 1)
+    )
+    db.commit()
     record_event(
         "share.download",
         request=request,
         actor=email,
         target=f"share:{token[:8]}",
-        package_id=share.package_id,
-        detail={"file_id": file_id, "filename": record.filename},
+        package_id=package_id,
+        detail={"file_id": file_id, "filename": filename},
     )
     return FileResponse(
-        storage.path(record.storage_key),
-        media_type=record.content_type,
-        filename=record.filename,
+        storage.path(storage_key),
+        media_type=content_type,
+        filename=filename,
     )
 
 
 @router.get("/{token}/download")
+@limiter.limit(EXPENSIVE)
 def download_shared_archive(
     token: str,
     db: DbSession,
@@ -224,41 +258,34 @@ def download_shared_archive(
     memory) and streamed back, then removed once the response is sent.
     """
     share = _get_active_share(db, token)
-    try:
-        email = _authorize_download(share, access)
-    except HTTPException as exc:
-        record_event(
-            "share.download.denied",
-            request=request,
-            target=f"share:{token[:8]}",
-            package_id=share.package_id,
-            detail={"status": exc.status_code},
-        )
-        raise
+    email = _authorize_download_or_deny(share, access, request)
 
     if file_ids:
         selected = [f for f in share.package.files if f.id in set(file_ids)]
     else:
         selected = list(share.package.files)
 
-    if not selected:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No matching files to download",
-        )
+    validate_archive_request(
+        selected, empty_detail="No matching files to download"
+    )
 
-    if sum(file.size for file in selected) > settings.max_archive_size:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="The selected files exceed the maximum archive size",
-        )
-
+    # Build while the ORM instances are still fresh (before the counter commit
+    # expires them), then record the download.
+    selected_ids = [file.id for file in selected]
+    package_id = share.package_id
+    response = build_archive_download(selected, package_name=share.package.name)
+    db.execute(
+        update(PackageFile)
+        .where(PackageFile.id.in_(selected_ids))
+        .values(download_count=PackageFile.download_count + 1)
+    )
+    db.commit()
     record_event(
         "share.download",
         request=request,
         actor=email,
         target=f"share:{token[:8]}",
-        package_id=share.package_id,
-        detail={"file_ids": [file.id for file in selected], "archive": True},
+        package_id=package_id,
+        detail={"file_ids": selected_ids, "archive": True},
     )
-    return build_archive_download(selected, package_name=share.package.name)
+    return response

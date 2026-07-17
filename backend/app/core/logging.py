@@ -36,6 +36,25 @@ def get_request_id() -> str | None:
     return _request_id.get()
 
 
+def mask_email(value: str) -> str:
+    """Partially redact an email address for logging (``a***@e***.com``).
+
+    Leaves non-email strings unchanged. Used to keep personally identifiable
+    addresses out of stdout logs (which are often shipped to third-party
+    aggregators) while the access-controlled audit table keeps the full value.
+    """
+    local, sep, domain = value.partition("@")
+    if not sep:
+        return value
+
+    def _keep_initial(part: str) -> str:
+        return f"{part[0]}***" if part else "***"
+
+    name, dot, tld = domain.rpartition(".")
+    masked_domain = f"{_keep_initial(name)}.{tld}" if dot else _keep_initial(domain)
+    return f"{_keep_initial(local)}@{masked_domain}"
+
+
 # Standard LogRecord attributes; anything else on a record is an ``extra`` field
 # and is included as-is in JSON output.
 _RESERVED = frozenset(

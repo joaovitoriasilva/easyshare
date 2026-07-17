@@ -128,6 +128,19 @@ describe("adminApi", () => {
     expect(url).toBe("/api/admin/users/3");
     expect((init as RequestInit).method).toBe("PATCH");
   });
+
+  it("sets all quotas with PATCH", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ updated: 3 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await adminApi.setAllQuotas(1048576);
+
+    expect(result).toEqual({ updated: 3 });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/admin/users/quota");
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body)).toEqual({ storage_quota: 1048576 });
+  });
 });
 
 describe("packagesApi.update", () => {

@@ -18,7 +18,7 @@ from sqlalchemy import delete
 from sqlalchemy.engine import CursorResult
 from starlette.requests import Request
 
-from app.core.logging import get_request_id
+from app.core.logging import get_request_id, mask_email
 from app.db.session import SessionLocal
 from app.models.models import AuditEvent
 
@@ -28,6 +28,23 @@ logger = logging.getLogger("easyshare.audit")
 # than imported at each call site) so tests can point auditing at their isolated
 # engine, since record_event no longer receives the request's session.
 audit_sessionmaker = SessionLocal
+
+
+def _redact(value: str | None) -> str | None:
+    """Mask an email-like value for log output; pass anything else through."""
+    if value and "@" in value:
+        return mask_email(value)
+    return value
+
+
+def _redact_detail(detail: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Mask any email-like string values in a detail dict for log output."""
+    if not detail:
+        return detail
+    return {
+        key: (_redact(value) if isinstance(value, str) else value)
+        for key, value in detail.items()
+    }
 
 
 def record_event(
@@ -49,14 +66,17 @@ def record_event(
         detail: JSON-serialisable extra context.
     """
     client_ip = request.client.host if request and request.client else None
+    # Emails are masked in the stdout log (which may be shipped to external
+    # aggregators); the full value is still written to the access-controlled,
+    # retention-bounded audit table below for forensic use.
     logger.info(
         action,
         extra={
             "audit": True,
-            "actor": actor,
+            "actor": _redact(actor),
             "target": target,
             "client_ip": client_ip,
-            "detail": detail,
+            "detail": _redact_detail(detail),
         },
     )
     try:

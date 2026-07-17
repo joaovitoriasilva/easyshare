@@ -68,6 +68,11 @@ def decode_access_token(token: str) -> str | None:
         )
     except JWTError:
         return None
+    # A user access token carries no scope; reject anything scoped (e.g. a
+    # share-access download token) so the two token types can never be used
+    # interchangeably even though they are signed with the same key.
+    if payload.get("scope") is not None:
+        return None
     subject = payload.get("sub")
     if subject is None:
         return None

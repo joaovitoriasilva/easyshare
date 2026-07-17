@@ -10,7 +10,13 @@ export interface User {
   username: string;
   is_active: boolean;
   is_admin: boolean;
+  storage_quota: number;
   created_at: string;
+}
+
+/** User plus current storage usage, as returned by the admin endpoints. */
+export interface AdminUser extends User {
+  storage_used: number;
 }
 
 export interface PackageFile {
@@ -83,7 +89,7 @@ export interface AuditPage {
 }
 
 export interface UserPage {
-  items: User[];
+  items: AdminUser[];
   total: number;
   limit: number;
   offset: number;
@@ -94,4 +100,10 @@ export interface AdminUserUpdate {
   email?: string;
   is_active?: boolean;
   is_admin?: boolean;
+  // Bytes; 0 = unlimited.
+  storage_quota?: number;
+}
+
+export interface BulkQuotaResult {
+  updated: number;
 }

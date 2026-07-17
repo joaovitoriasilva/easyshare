@@ -149,10 +149,16 @@ running with Docker.
 | `EASYSHARE_ALGORITHM`                    | `HS256`                              | JWT signing algorithm.                                                      |
 | `EASYSHARE_ALLOW_REGISTRATION`           | `true`                               | Set to `false` to disable new user sign-ups (`POST /api/auth/register`); existing users can still log in. |
 | `EASYSHARE_DATABASE_URL`                 | `sqlite:///./easyshare.db`           | SQLAlchemy database URL. Use a `postgresql+psycopg://...` URL in production. |
+| `EASYSHARE_DB_POOL_SIZE`                 | `20`                                 | Connection pool size for server databases (PostgreSQL, etc.); ignored for SQLite. |
+| `EASYSHARE_DB_MAX_OVERFLOW`              | `20`                                 | Extra connections allowed beyond the pool size under load (server databases only). |
+| `EASYSHARE_DB_POOL_TIMEOUT`              | `30`                                 | Seconds a request waits for a free pooled connection before erroring (server databases only). |
 | `EASYSHARE_STORAGE_DIR`                  | `./storage`                          | Directory (or mounted volume) where uploaded files are stored.              |
 | `EASYSHARE_MAX_FILE_SIZE`                | `104857600` (100 MB)                 | Maximum size, in bytes, allowed for a single uploaded file.                  |
 | `EASYSHARE_MAX_FILES_PER_PACKAGE`        | `50`                                  | Maximum number of files allowed in a single package.                        |
 | `EASYSHARE_MAX_ARCHIVE_SIZE`             | `5368709120` (5 GiB)                 | Maximum combined size, in bytes, of a zip download; larger selections are rejected with 413. |
+| `EASYSHARE_MAX_CONCURRENT_ARCHIVE_BUILDS` | `4`                                | Maximum number of zip archives built at once. Each build holds a worker thread, so extra requests get 503 (retry) instead of stalling the whole service. |
+| `EASYSHARE_STORAGE_QUOTA_TOTAL`          | `0`                                  | Instance-wide storage cap, in bytes; uploads that would exceed it are rejected with 413. `0` (the default) disables the check. |
+| `EASYSHARE_STORAGE_QUOTA_PER_USER`       | `0`                                  | Storage budget, in bytes, assigned to each user when their account is created (`0` = unlimited). Existing users are backfilled to this value by migration; changing it later only affects new accounts. Administrators can adjust any user's quota afterwards on the admin users page. |
 | `EASYSHARE_OBFUSCATE_STORAGE_NAMES`      | `true`                               | When `true`, stored files get opaque random names on disk. Set to `false` to store them under readable `{package_id}/{file_id}_{filename}` paths instead. The original filename is always kept in the database; only files uploaded after the change are affected. |
 | `EASYSHARE_CORS_ORIGINS`                 | `http://localhost:5173`              | Comma-separated list of allowed CORS origins.                               |
 | `EASYSHARE_RATE_LIMIT_ENABLED`           | `true`                               | Set to `false` to disable API rate limiting.                                |

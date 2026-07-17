@@ -78,6 +78,17 @@ def test_weak_password_rejected(client: TestClient) -> None:
 
 def test_me_requires_auth(client: TestClient) -> None:
     assert client.get("/api/auth/me").status_code == 401
+
+
+def test_share_access_token_cannot_be_used_as_user_token(client: TestClient) -> None:
+    """A restricted-share download token must not authenticate a user session."""
+    from app.core.security import create_share_access_token
+
+    scoped = create_share_access_token("share-token", "user@example.com")
+    resp = client.get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {scoped}"}
+    )
+    assert resp.status_code == 401
     headers = register_and_login(client)
     resp = client.get("/api/auth/me", headers=headers)
     assert resp.status_code == 200

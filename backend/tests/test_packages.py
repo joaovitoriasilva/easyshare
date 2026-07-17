@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import threading
 import zipfile
 
 import pytest
@@ -292,5 +293,81 @@ def test_delete_all_files(client: TestClient) -> None:
 
     pkg = client.get(f"/api/packages/{pkg_id}", headers=headers).json()
     assert pkg["files"] == []
+
+
+def test_upload_respects_per_user_quota(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "storage_quota_per_user", 10)
+    headers = register_and_login(client)
+    pkg_id = _create_package(client, headers)
+
+    first = client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("a.txt", io.BytesIO(b"12345"), "text/plain")},
+        headers=headers,
+    )
+    assert first.status_code == 201
+
+    # Only 5 of the 10-byte budget remain, so a 10-byte file is refused.
+    second = client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("b.txt", io.BytesIO(b"1234567890"), "text/plain")},
+        headers=headers,
+    )
+    assert second.status_code == 413
+
+
+def test_upload_respects_total_storage_quota(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "storage_quota_total", 4)
+    headers = register_and_login(client)
+    pkg_id = _create_package(client, headers)
+
+    resp = client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("a.txt", io.BytesIO(b"toolarge"), "text/plain")},
+        headers=headers,
+    )
+    assert resp.status_code == 413
+
+
+def test_new_user_quota_defaults_to_configured_value(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "storage_quota_per_user", 4096)
+    resp = client.post(
+        "/api/auth/register",
+        json={
+            "email": "q@example.com",
+            "username": "quotauser",
+            "password": "supersecret1",
+        },
+    )
+    assert resp.status_code == 201
+    assert resp.json()["storage_quota"] == 4096
+
+
+def test_archive_download_busy_returns_503(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services import archive as archive_module
+
+    headers = register_and_login(client)
+    pkg_id = _create_package(client, headers)
+    client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("a.txt", io.BytesIO(b"aaa"), "text/plain")},
+        headers=headers,
+    )
+
+    # Saturate the build concurrency so the next archive build is rejected.
+    busy = threading.BoundedSemaphore(1)
+    assert busy.acquire(blocking=False) is True
+    monkeypatch.setattr(archive_module, "_build_semaphore", busy)
+
+    resp = client.get(f"/api/packages/{pkg_id}/download", headers=headers)
+    assert resp.status_code == 503
 
 
