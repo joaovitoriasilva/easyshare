@@ -74,10 +74,12 @@ export const packagesApi = {
   remove(id: number): Promise<void> {
     return api.request<void>(`/packages/${id}`, { method: "DELETE" });
   },
-  uploadFile(id: number, file: File): Promise<void> {
-    const form = new FormData();
-    form.append("file", file);
-    return api.request<void>(`/packages/${id}/files`, { method: "POST", form });
+  uploadFile(
+    id: number,
+    file: File,
+    onProgress?: (fraction: number) => void,
+  ): Promise<void> {
+    return api.upload<void>(`/packages/${id}/files`, file, { onProgress });
   },
   removeFile(packageId: number, fileId: number): Promise<void> {
     return api.request<void>(`/packages/${packageId}/files/${fileId}`, {

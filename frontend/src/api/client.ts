@@ -137,4 +137,75 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return (await response.blob()) as T;
 }
 
-export const api = { request };
+export interface UploadOptions {
+  /** Called with the upload fraction (0..1) as the file streams to the server. */
+  onProgress?: (fraction: number) => void;
+}
+
+/**
+ * Upload a single file with progress reporting. Uses XMLHttpRequest because the
+ * fetch API cannot report upload progress; auth, error shaping and the global
+ * 401 handler mirror `request()`. There is no timeout so large uploads are not
+ * cut off.
+ */
+function upload<T>(path: string, file: File, options: UploadOptions = {}): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/api${path}`);
+
+    const token = getToken();
+    if (token) {
+      xhr.setRequestHeader("Authorization", "Bearer " + token);
+    }
+
+    if (options.onProgress) {
+      xhr.upload.addEventListener("progress", (event) => {
+        if (event.lengthComputable) {
+          options.onProgress?.(event.loaded / event.total);
+        }
+      });
+    }
+
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(
+            xhr.responseText ? (JSON.parse(xhr.responseText) as T) : (undefined as T),
+          );
+        } catch {
+          resolve(undefined as T);
+        }
+        return;
+      }
+      let message = xhr.statusText;
+      let detail: unknown = null;
+      try {
+        const data: unknown = JSON.parse(xhr.responseText);
+        if (data && typeof data === "object" && "detail" in data) {
+          detail = (data as { detail: unknown }).detail;
+          if (typeof detail === "string") {
+            message = detail;
+          }
+        } else {
+          detail = data;
+        }
+      } catch {
+        /* ignore body parse errors */
+      }
+      if (xhr.status === 401) {
+        unauthorizedHandler?.();
+      }
+      reject(new ApiError(xhr.status, message, detail));
+    });
+
+    xhr.addEventListener("error", () =>
+      reject(new ApiError(0, "Network error. Please check your connection.")),
+    );
+
+    const form = new FormData();
+    form.append("file", file);
+    xhr.send(form);
+  });
+}
+
+export const api = { request, upload };

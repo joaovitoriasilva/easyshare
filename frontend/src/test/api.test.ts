@@ -242,6 +242,54 @@ describe("packagesApi stats and bulk file actions", () => {
 });
 
 
+describe("packagesApi.uploadFile", () => {
+  type ProgressLike = { lengthComputable: boolean; loaded: number; total: number };
+
+  class FakeUpload {
+    handler: ((event: ProgressLike) => void) | null = null;
+    addEventListener(type: string, cb: (event: ProgressLike) => void): void {
+      if (type === "progress") {
+        this.handler = cb;
+      }
+    }
+  }
+
+  class FakeXhr {
+    status = 0;
+    statusText = "";
+    responseText = "";
+    upload = new FakeUpload();
+    private onLoad: (() => void) | null = null;
+    open(): void {}
+    setRequestHeader(): void {}
+    addEventListener(type: string, cb: () => void): void {
+      if (type === "load") {
+        this.onLoad = cb;
+      }
+    }
+    send(): void {
+      this.upload.handler?.({ lengthComputable: true, loaded: 5, total: 10 });
+      this.upload.handler?.({ lengthComputable: true, loaded: 10, total: 10 });
+      this.status = 201;
+      this.responseText = JSON.stringify({ id: 1 });
+      this.onLoad?.();
+    }
+  }
+
+  it("uploads via XHR and reports progress", async () => {
+    vi.stubGlobal("XMLHttpRequest", FakeXhr);
+    const fractions: number[] = [];
+
+    await packagesApi.uploadFile(7, new File(["data"], "a.txt"), (fraction) =>
+      fractions.push(fraction),
+    );
+
+    expect(fractions).toEqual([0.5, 1]);
+    vi.unstubAllGlobals();
+  });
+});
+
+
 describe("api error handling", () => {
   it("throws ApiError with the server detail message", async () => {
     vi.stubGlobal(

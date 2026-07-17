@@ -39,6 +39,14 @@ const loading = ref(true);
 const uploading = ref(false);
 const downloadingAll = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
+const dragging = ref(false);
+
+interface UploadItem {
+  name: string;
+  progress: number;
+  status: "uploading" | "done" | "error";
+}
+const uploads = ref<UploadItem[]>([]);
 
 const editing = ref(false);
 const editName = ref("");
@@ -124,13 +132,10 @@ async function saveDetails(): Promise<void> {
   }
 }
 
-async function onUpload(event: Event): Promise<void> {
-  const target = event.target as HTMLInputElement;
-  const selected = target.files;
-  if (!selected || selected.length === 0) {
+async function uploadFiles(files: File[]): Promise<void> {
+  if (uploading.value || files.length === 0) {
     return;
   }
-  const files = Array.from(selected);
   const maxSize = auth.maxFileSize;
   const tooLarge = files.filter((file) => file.size > maxSize);
   const valid = files.filter((file) => file.size <= maxSize);
@@ -141,27 +146,57 @@ async function onUpload(event: Event): Promise<void> {
     );
   }
   if (valid.length === 0) {
-    if (fileInput.value) {
-      fileInput.value.value = "";
-    }
     return;
   }
   uploading.value = true;
+  uploads.value = valid.map((file) => ({
+    name: file.name,
+    progress: 0,
+    status: "uploading",
+  }));
+  let uploaded = 0;
   try {
-    let count = 0;
-    for (const file of valid) {
-      await packagesApi.uploadFile(packageId, file);
-      count += 1;
+    for (let index = 0; index < valid.length; index += 1) {
+      const item = uploads.value[index];
+      try {
+        await packagesApi.uploadFile(packageId, valid[index], (fraction) => {
+          item.progress = fraction;
+        });
+        item.progress = 1;
+        item.status = "done";
+        uploaded += 1;
+      } catch (err) {
+        item.status = "error";
+        toast.error(
+          `${item.name}: ${err instanceof ApiError ? err.message : "Upload failed"}`,
+        );
+      }
     }
-    pkg.value = await packagesApi.get(packageId);
-    toast.success(`Uploaded ${count} file${count === 1 ? "" : "s"}`);
-  } catch (err) {
-    toast.error(err instanceof ApiError ? err.message : "Upload failed");
+    if (uploaded > 0) {
+      pkg.value = await packagesApi.get(packageId);
+      toast.success(`Uploaded ${uploaded} file${uploaded === 1 ? "" : "s"}`);
+    }
   } finally {
     uploading.value = false;
-    if (fileInput.value) {
-      fileInput.value.value = "";
+    // Clear the progress list unless something failed (keep failures visible).
+    if (uploads.value.every((item) => item.status === "done")) {
+      uploads.value = [];
     }
+  }
+}
+
+function onUpload(event: Event): void {
+  const target = event.target as HTMLInputElement;
+  const files = target.files ? Array.from(target.files) : [];
+  void uploadFiles(files);
+  target.value = "";
+}
+
+function onDrop(event: DragEvent): void {
+  dragging.value = false;
+  const files = event.dataTransfer?.files;
+  if (files && files.length > 0) {
+    void uploadFiles(Array.from(files));
   }
 }
 
@@ -399,13 +434,63 @@ onMounted(load);
               class="hidden"
               @change="onUpload"
             />
-            <div class="flex flex-wrap gap-2">
-              <Button :disabled="uploading" @click="fileInput?.click()">
-                <Upload class="h-4 w-4" />
-                {{ uploading ? "Uploading..." : "Upload files" }}
-              </Button>
+
+            <div
+              role="button"
+              tabindex="0"
+              aria-label="Upload files"
+              class="flex flex-col items-center justify-center rounded-md border border-dashed px-4 py-8 text-center transition-colors"
+              :class="[
+                dragging ? 'border-primary bg-primary/5' : 'border-input',
+                uploading
+                  ? 'pointer-events-none opacity-60'
+                  : 'cursor-pointer hover:border-primary',
+              ]"
+              @click="fileInput?.click()"
+              @keydown.enter.prevent="fileInput?.click()"
+              @keydown.space.prevent="fileInput?.click()"
+              @dragover.prevent="dragging = true"
+              @dragenter.prevent="dragging = true"
+              @dragleave.prevent="dragging = false"
+              @drop.prevent="onDrop"
+            >
+              <div class="pointer-events-none flex flex-col items-center gap-1">
+                <Upload class="h-6 w-6 text-muted-foreground" />
+                <p class="text-sm">
+                  <span class="font-medium text-primary">Click to upload</span>
+                  or drag and drop
+                </p>
+                <p class="text-xs text-muted-foreground">
+                  Up to {{ formatBytes(auth.maxFileSize) }} per file
+                </p>
+              </div>
+            </div>
+
+            <ul v-if="uploads.length" class="space-y-2">
+              <li v-for="(item, index) in uploads" :key="index" class="space-y-1">
+                <div class="flex items-center justify-between gap-2 text-xs">
+                  <span class="min-w-0 truncate">{{ item.name }}</span>
+                  <span
+                    class="shrink-0"
+                    :class="
+                      item.status === 'error' ? 'text-destructive' : 'text-muted-foreground'
+                    "
+                  >
+                    {{ item.status === "error" ? "Failed" : Math.round(item.progress * 100) + "%" }}
+                  </span>
+                </div>
+                <div class="h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div
+                    class="h-full rounded-full transition-all"
+                    :class="item.status === 'error' ? 'bg-destructive' : 'bg-primary'"
+                    :style="{ width: `${Math.round(item.progress * 100)}%` }"
+                  />
+                </div>
+              </li>
+            </ul>
+
+            <div v-if="pkg.files.length" class="flex flex-wrap gap-2">
               <Button
-                v-if="pkg.files.length"
                 variant="outline"
                 :disabled="downloadingAll"
                 @click="downloadAllOwned"
@@ -413,11 +498,7 @@ onMounted(load);
                 <Download class="h-4 w-4" />
                 {{ downloadingAll ? "Preparing..." : "Download all" }}
               </Button>
-              <Button
-                v-if="pkg.files.length"
-                variant="destructive"
-                @click="removeAllFiles"
-              >
+              <Button variant="destructive" @click="removeAllFiles">
                 <Trash2 class="h-4 w-4" /> Delete all
               </Button>
             </div>
