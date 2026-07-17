@@ -149,7 +149,7 @@ running with Docker.
 | `EASYSHARE_SHARE_ACCESS_TOKEN_EXPIRE_MINUTES` | `30`                          | Lifetime, in minutes, of the token authorising restricted-share downloads.  |
 | `EASYSHARE_ALGORITHM`                    | `HS256`                              | JWT signing algorithm.                                                      |
 | `EASYSHARE_ALLOW_REGISTRATION`           | `true`                               | Set to `false` to disable new user sign-ups (`POST /api/auth/register`); existing users can still log in. |
-| `EASYSHARE_DATABASE_URL`                 | `sqlite:///./easyshare.db`           | SQLAlchemy database URL. Use a `postgresql+psycopg://...` URL in production. |
+| `EASYSHARE_DATABASE_URL`                 | `sqlite:///./easyshare.db`           | SQLAlchemy database URL. Use a `postgresql+psycopg://...` URL in production (needs the `postgres` build extra / psycopg). |
 | `EASYSHARE_DB_POOL_SIZE`                 | `20`                                 | Connection pool size for server databases (PostgreSQL, etc.); ignored for SQLite. |
 | `EASYSHARE_DB_MAX_OVERFLOW`              | `20`                                 | Extra connections allowed beyond the pool size under load (server databases only). |
 | `EASYSHARE_DB_POOL_TIMEOUT`              | `30`                                 | Seconds a request waits for a free pooled connection before erroring (server databases only). |
@@ -194,10 +194,14 @@ static files and served by the FastAPI backend itself, on the same origin as
 ## Scaling to multiple replicas
 
 The default configuration is a self-contained single node: uploads live on
-local disk and rate-limit counters live in process memory, which needs no extra
-services. Running more than one worker or replica requires state that is shared
-across processes, so switch two backends and declare the topology:
+local disk, the database is a SQLite file, and rate-limit counters live in
+process memory — no extra services required. Running more than one replica needs
+state shared across processes, so switch three backends and declare the topology:
 
+- **Shared database.** SQLite is single-writer and file-local, so point
+  `EASYSHARE_DATABASE_URL` at a server database, e.g.
+  `postgresql+psycopg://user:pass@host/easyshare` (the PostgreSQL driver ships in
+  the `postgres` extra).
 - **Shared rate-limit store.** Point `EASYSHARE_RATE_LIMIT_STORAGE_URI` at Redis
   (e.g. `redis://redis:6379/0`) so limits are enforced across the fleet rather
   than per-process. Set `EASYSHARE_DEPLOYMENT_PROFILE=distributed`; the app then
@@ -209,15 +213,20 @@ across processes, so switch two backends and declare the topology:
   S3-compatible object storage (MinIO, R2, Ceph, …). With S3, single-file
   downloads redirect to a short-lived presigned URL, so file bytes are served by
   the object store instead of being proxied through the app.
-- **Bake in the optional dependencies.** boto3 and redis ship only when
-  requested, so build the image with the extras you need:
-  `docker build --build-arg EASYSHARE_EXTRAS="s3,redis" .`
+- **Bake in the optional dependencies.** The Postgres, Redis and S3 drivers ship
+  only when requested, so build the image with the extras you need:
+  `docker build --build-arg EASYSHARE_EXTRAS="postgres,redis,s3" .`
+
+`docker-compose.distributed.example.yml` is a complete, runnable version of the
+above: a Traefik load balancer in front of three replicas, backed by PostgreSQL,
+Redis and a one-shot migration job.
 
 Two caveats when using S3: the presigned redirect means authenticated
 owner-side downloads (issued with `fetch`) require the bucket's CORS policy to
 allow the app origin — public share downloads use a normal link and are
 unaffected. Also run database migrations once as a separate step rather than
-letting every replica run them on start-up.
+letting every replica run them on start-up (the example's `migrate` service does
+exactly this).
 
 ## Testing & quality
 

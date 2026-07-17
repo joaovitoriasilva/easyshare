@@ -21,11 +21,13 @@ dependencies = [
 ]
 
 # Optional runtime extras, installed only for deployments that need them:
-#   pip install "easyshare-backend[s3]"     # S3-compatible object storage
-#   pip install "easyshare-backend[redis]"  # shared rate-limit store (distributed)
+#   pip install "easyshare-backend[s3]"        # S3-compatible object storage
+#   pip install "easyshare-backend[redis]"     # shared rate-limit store (distributed)
+#   pip install "easyshare-backend[postgres]"  # PostgreSQL driver (shared database)
 [project.optional-dependencies]
 s3 = ["boto3>=1.34,<2.0"]
 redis = ["redis>=5.0,<6.0"]
+postgres = ["psycopg[binary]>=3.1,<4.0"]
 
 # PEP 735 dependency groups: development-only tooling, never shipped in the
 # image (`uv export --no-dev`). ``uv sync`` installs the ``dev`` group by
