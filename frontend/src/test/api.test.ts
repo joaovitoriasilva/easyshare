@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { adminApi, auditApi, packagesApi, publicApi } from "@/api";
-import { ApiError, getToken, setToken } from "@/api/client";
+import { ApiError, getToken, setToken, setUnauthorizedHandler } from "@/api/client";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -205,8 +205,28 @@ describe("packagesApi stats and bulk file actions", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("/api/packages/7/stats");
   });
 
-  it("builds the download-all url", () => {
-    expect(packagesApi.downloadAllUrl(7)).toBe("/api/packages/7/download");
+  it("builds the download-all url with a token", () => {
+    expect(packagesApi.downloadAllUrl(7, "tok.jwt")).toBe(
+      "/api/packages/7/download?token=tok.jwt",
+    );
+  });
+
+  it("builds a file download url with a token", () => {
+    expect(packagesApi.fileDownloadUrl(7, 3, "tok.jwt")).toBe(
+      "/api/packages/7/files/3/download?token=tok.jwt",
+    );
+  });
+
+  it("requests a download token", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ token: "abc" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await packagesApi.downloadToken(7);
+
+    expect(result).toEqual({ token: "abc" });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/packages/7/download-token");
+    expect(init.method).toBe("POST");
   });
 
   it("sends a DELETE to remove all files", async () => {
@@ -237,5 +257,36 @@ describe("api error handling", () => {
       status: 404,
       message: "Share not found",
     } satisfies Partial<ApiError>);
+  });
+});
+
+describe("unauthorized handling", () => {
+  const unauthorized = (): Response =>
+    new Response(JSON.stringify({ detail: "Not authenticated" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
+
+  it("invokes the handler on a 401 for authenticated requests", async () => {
+    const handler = vi.fn();
+    setUnauthorizedHandler(handler);
+    setToken("expired");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(unauthorized()));
+
+    await expect(packagesApi.get(1)).rejects.toBeInstanceOf(ApiError);
+    expect(handler).toHaveBeenCalledOnce();
+
+    setUnauthorizedHandler(null);
+  });
+
+  it("ignores 401s from unauthenticated (auth:false) requests", async () => {
+    const handler = vi.fn();
+    setUnauthorizedHandler(handler);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(unauthorized()));
+
+    await expect(publicApi.view("x")).rejects.toBeInstanceOf(ApiError);
+    expect(handler).not.toHaveBeenCalled();
+
+    setUnauthorizedHandler(null);
   });
 });

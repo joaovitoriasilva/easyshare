@@ -27,6 +27,14 @@ _DUMMY_HASH = _password_hash.hash(secrets.token_urlsafe(32))
 # access token, so the two can never be used interchangeably.
 _SHARE_ACCESS_SCOPE = "share-access"
 
+# Marks a token as an owner download credential scoped to a single package, so a
+# plain browser navigation can stream a download without an Authorization
+# header (which would otherwise force the SPA to buffer large files in memory).
+_DOWNLOAD_SCOPE = "download"
+# Owner download tokens are consumed immediately by the browser, so they only
+# need to outlive the round trip between issuing the token and navigating.
+_DOWNLOAD_TOKEN_TTL = timedelta(minutes=5)
+
 
 def hash_password(password: str) -> str:
     """Hash a plaintext password using Argon2id."""
@@ -122,6 +130,45 @@ def decode_share_access_token(token: str, share_token: str) -> str | None:
     if not isinstance(email, str):
         return None
     return email
+
+
+def create_download_token(
+    user_id: int, package_id: int, expires_delta: timedelta | None = None
+) -> str:
+    """Create a short-lived token letting ``user_id`` download ``package_id``.
+
+    Lets the browser fetch a file or archive with a plain navigation (no
+    Authorization header), so large downloads stream to disk instead of being
+    buffered in memory by the SPA.
+    """
+    expire = datetime.now(UTC) + (expires_delta or _DOWNLOAD_TOKEN_TTL)
+    payload: dict[str, Any] = {
+        "scope": _DOWNLOAD_SCOPE,
+        "sub": str(user_id),
+        "pkg": package_id,
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
+def decode_download_token(token: str) -> tuple[int, int] | None:
+    """Return ``(user_id, package_id)`` for a valid download token, else ``None``."""
+    try:
+        payload = jwt.decode(
+            token, settings.secret_key, algorithms=[settings.algorithm]
+        )
+    except JWTError:
+        return None
+    if payload.get("scope") != _DOWNLOAD_SCOPE:
+        return None
+    subject = payload.get("sub")
+    package_id = payload.get("pkg")
+    if subject is None or not isinstance(package_id, int):
+        return None
+    try:
+        return int(subject), package_id
+    except (TypeError, ValueError):
+        return None
 
 
 def generate_share_token() -> str:

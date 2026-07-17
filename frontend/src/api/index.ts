@@ -5,6 +5,7 @@ import type {
   AuditPage,
   AuthConfig,
   BulkQuotaResult,
+  DownloadToken,
   Package,
   PackagePage,
   PackageStats,
@@ -41,7 +42,7 @@ export const authApi = {
   },
 
   async me(): Promise<User> {
-    return api.request<User>("/auth/me");
+    return api.request<User>("/auth/me", { skipAuthRedirect: true });
   },
 };
 
@@ -89,8 +90,16 @@ export const packagesApi = {
   stats(id: number): Promise<PackageStats> {
     return api.request<PackageStats>(`/packages/${id}/stats`);
   },
-  downloadAllUrl(id: number): string {
-    return `/api/packages/${id}/download`;
+  downloadToken(id: number): Promise<DownloadToken> {
+    return api.request<DownloadToken>(`/packages/${id}/download-token`, {
+      method: "POST",
+    });
+  },
+  fileDownloadUrl(id: number, fileId: number, token: string): string {
+    return `/api/packages/${id}/files/${fileId}/download?token=${encodeURIComponent(token)}`;
+  },
+  downloadAllUrl(id: number, token: string): string {
+    return `/api/packages/${id}/download?token=${encodeURIComponent(token)}`;
   },
 };
 

@@ -2,6 +2,7 @@ export type Visibility = "public" | "restricted";
 
 export interface AuthConfig {
   allow_registration: boolean;
+  max_file_size: number;
 }
 
 export interface User {
@@ -47,6 +48,10 @@ export interface PackagePage {
   total: number;
   limit: number;
   offset: number;
+}
+
+export interface DownloadToken {
+  token: string;
 }
 
 export interface Share {

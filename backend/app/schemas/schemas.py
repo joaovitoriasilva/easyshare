@@ -79,6 +79,7 @@ class LoginRequest(BaseModel):
 
 class AuthConfig(BaseModel):
     allow_registration: bool
+    max_file_size: int
 
 
 # --- Packages --------------------------------------------------------------
@@ -130,6 +131,12 @@ class PackagePage(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class DownloadToken(BaseModel):
+    """Short-lived token authorising a browser to stream an owner download."""
+
+    token: str
 
 
 # --- Shares ----------------------------------------------------------------

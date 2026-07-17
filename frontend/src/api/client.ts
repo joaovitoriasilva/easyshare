@@ -25,6 +25,18 @@ export function setToken(token: string | null): void {
   }
 }
 
+type UnauthorizedHandler = () => void;
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+
+/**
+ * Register a callback invoked when an authenticated request is rejected with
+ * 401 (typically an expired token), so the app can clear the session and send
+ * the user to the login screen instead of surfacing a scattered per-view error.
+ */
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  unauthorizedHandler = handler;
+}
+
 interface RequestOptions {
   method?: string;
   body?: unknown;
@@ -32,6 +44,8 @@ interface RequestOptions {
   auth?: boolean;
   /** Request timeout in ms; `0` disables it. Defaults to 30s (0 for uploads). */
   timeout?: number;
+  /** Skip the global 401 handler (used by the current-user probe on startup). */
+  skipAuthRedirect?: boolean;
 }
 
 /** Default per-request timeout; uploads opt out so large files aren't cut off. */
@@ -102,6 +116,13 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       }
     } catch {
       /* ignore body parse errors */
+    }
+    if (
+      response.status === 401 &&
+      options.auth !== false &&
+      !options.skipAuthRedirect
+    ) {
+      unauthorizedHandler?.();
     }
     throw new ApiError(response.status, message, detail);
   }

@@ -27,7 +27,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.get("/config", response_model=AuthConfig)
 def auth_config() -> AuthConfig:
     """Public auth-related feature flags for the frontend."""
-    return AuthConfig(allow_registration=settings.allow_registration)
+    return AuthConfig(
+        allow_registration=settings.allow_registration,
+        max_file_size=settings.max_file_size,
+    )
 
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)

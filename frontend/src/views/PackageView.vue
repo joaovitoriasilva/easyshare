@@ -3,13 +3,14 @@ import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ArrowLeft, Download, Pencil, Trash2, Upload } from "lucide-vue-next";
 import { packagesApi, sharesApi } from "@/api";
-import { ApiError, getToken } from "@/api/client";
+import { ApiError } from "@/api/client";
 import type { Package, PackageStats, Share, Visibility } from "@/api/types";
 import { formatBytes } from "@/lib/format";
-import { downloadBlob } from "@/lib/download";
-import { invalidEmails } from "@/lib/validation";
+import { downloadUrl } from "@/lib/download";
+import { invalidEmails, parseEmailList } from "@/lib/validation";
 import { useToasts } from "@/composables/useToasts";
 import { useConfirm } from "@/composables/useConfirm";
+import { useAuthStore } from "@/stores/auth";
 import {
   Alert,
   Button,
@@ -27,6 +28,7 @@ const route = useRoute();
 const router = useRouter();
 const toast = useToasts();
 const { confirm } = useConfirm();
+const auth = useAuthStore();
 const packageId = Number(route.params.id);
 
 const pkg = ref<Package | null>(null);
@@ -82,18 +84,11 @@ function fileDownloads(fileId: number): number {
   return stats.value?.file_downloads[fileId] ?? 0;
 }
 
-function parseEmails(): string[] {
-  return emailsText.value
-    .split(/[\s,]+/)
-    .map((email) => email.trim())
-    .filter(Boolean);
-}
-
 const emailIssues = computed(() => invalidEmails(emailsText.value));
 const restrictedEmailsOk = computed(
   () =>
     visibility.value !== "restricted" ||
-    (parseEmails().length > 0 && emailIssues.value.length === 0),
+    (parseEmailList(emailsText.value).length > 0 && emailIssues.value.length === 0),
 );
 
 function startEdit(): void {
@@ -131,14 +126,30 @@ async function saveDetails(): Promise<void> {
 
 async function onUpload(event: Event): Promise<void> {
   const target = event.target as HTMLInputElement;
-  const files = target.files;
-  if (!files || files.length === 0) {
+  const selected = target.files;
+  if (!selected || selected.length === 0) {
+    return;
+  }
+  const files = Array.from(selected);
+  const maxSize = auth.maxFileSize;
+  const tooLarge = files.filter((file) => file.size > maxSize);
+  const valid = files.filter((file) => file.size <= maxSize);
+  if (tooLarge.length > 0) {
+    const names = tooLarge.map((file) => file.name).join(", ");
+    toast.error(
+      `${names} exceed${tooLarge.length === 1 ? "s" : ""} the ${formatBytes(maxSize)} limit`,
+    );
+  }
+  if (valid.length === 0) {
+    if (fileInput.value) {
+      fileInput.value.value = "";
+    }
     return;
   }
   uploading.value = true;
   try {
     let count = 0;
-    for (const file of Array.from(files)) {
+    for (const file of valid) {
       await packagesApi.uploadFile(packageId, file);
       count += 1;
     }
@@ -195,46 +206,48 @@ async function removeAllFiles(): Promise<void> {
   }
 }
 
+async function triggerDownload(
+  buildUrl: (token: string) => string,
+  filename: string,
+  failMessage: string,
+): Promise<void> {
+  try {
+    const { token } = await packagesApi.downloadToken(packageId);
+    downloadUrl(buildUrl(token), filename);
+  } catch {
+    toast.error(failMessage);
+  }
+}
+
 function downloadOwned(fileId: number, filename: string): void {
-  const token = getToken();
-  fetch(`/api/packages/${packageId}/files/${fileId}/download`, {
-    headers: token ? { Authorization: "Bearer " + token } : {},
-  })
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error("Download failed");
-      }
-      return response.blob();
-    })
-    .then((blob) => downloadBlob(blob, filename))
-    .catch(() => toast.error("Failed to download file"));
+  void triggerDownload(
+    (token) => packagesApi.fileDownloadUrl(packageId, fileId, token),
+    filename,
+    "Failed to download file",
+  );
 }
 
 async function downloadAllOwned(): Promise<void> {
   if (!pkg.value?.files.length) {
     return;
   }
+  const name = pkg.value.name;
   downloadingAll.value = true;
-  const token = getToken();
-  try {
-    const response = await fetch(packagesApi.downloadAllUrl(packageId), {
-      headers: token ? { Authorization: "Bearer " + token } : {},
-    });
-    if (!response.ok) {
-      throw new Error("Download failed");
-    }
-    const blob = await response.blob();
-    downloadBlob(blob, `${pkg.value.name}.zip`);
-  } catch {
-    toast.error("Failed to download files");
-  } finally {
-    downloadingAll.value = false;
-  }
+  await triggerDownload(
+    (token) => packagesApi.downloadAllUrl(packageId, token),
+    `${name}.zip`,
+    "Failed to download files",
+  );
+  downloadingAll.value = false;
 }
 
 async function enableSharing(): Promise<void> {
   try {
-    share.value = await sharesApi.enable(packageId, visibility.value, parseEmails());
+    share.value = await sharesApi.enable(
+      packageId,
+      visibility.value,
+      parseEmailList(emailsText.value),
+    );
     toast.success("Sharing enabled");
   } catch (err) {
     toast.error(err instanceof ApiError ? err.message : "Failed to enable sharing");
@@ -245,7 +258,7 @@ async function updateSharing(): Promise<void> {
   try {
     share.value = await sharesApi.update(packageId, {
       visibility: visibility.value,
-      allowed_emails: parseEmails(),
+      allowed_emails: parseEmailList(emailsText.value),
     });
     toast.success("Changes saved");
   } catch (err) {

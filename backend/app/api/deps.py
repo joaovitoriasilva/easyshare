@@ -4,15 +4,21 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
-from app.core.security import decode_access_token
+from app.core.security import decode_access_token, decode_download_token
 from app.db.session import get_db
 from app.models.models import Package, PackageFile, User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+# Same scheme, but non-raising: used by download endpoints that also accept a
+# signed download token in the query string, so a plain browser navigation can
+# authorise a download without an Authorization header.
+optional_oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="/api/auth/login", auto_error=False
+)
 
 DbSession = Annotated[Session, Depends(get_db)]
 
@@ -76,6 +82,42 @@ def get_owned_file(
 
 
 OwnedFile = Annotated[PackageFile, Depends(get_owned_file)]
+
+
+def get_downloadable_package(
+    package_id: int,
+    db: DbSession,
+    token: Annotated[str | None, Query()] = None,
+    bearer: Annotated[str | None, Depends(optional_oauth2_scheme)] = None,
+) -> Package:
+    """Authorise a package download via a Bearer token or a signed download token.
+
+    The signed download token (issued by the ``/download-token`` endpoint) lets
+    the browser stream a file or archive with a plain navigation, so large
+    downloads are not buffered in memory by the SPA. A normal Bearer token is
+    still accepted for API clients. Anything else is reported as 404 so the
+    endpoint never reveals whether a package exists.
+    """
+    owner_id: int | None = None
+    if token:
+        claims = decode_download_token(token)
+        if claims is not None and claims[1] == package_id:
+            owner_id = claims[0]
+    elif bearer:
+        subject = decode_access_token(bearer)
+        if subject is not None and subject.isdigit():
+            user = db.get(User, int(subject))
+            if user is not None and user.is_active:
+                owner_id = user.id
+    package = db.get(Package, package_id) if owner_id is not None else None
+    if package is None or package.owner_id != owner_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Package not found"
+        )
+    return package
+
+
+DownloadablePackage = Annotated[Package, Depends(get_downloadable_package)]
 
 
 def get_current_admin(current_user: CurrentUser) -> User:

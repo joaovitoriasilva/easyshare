@@ -277,6 +277,59 @@ def test_download_all_files_empty_package(client: TestClient) -> None:
     assert resp.status_code == 404
 
 
+def test_download_token_streams_without_bearer(client: TestClient) -> None:
+    headers = register_and_login(client)
+    pkg_id = _create_package(client, headers)
+    file_id = client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("a.txt", io.BytesIO(b"aaa"), "text/plain")},
+        headers=headers,
+    ).json()["id"]
+
+    token = client.post(
+        f"/api/packages/{pkg_id}/download-token", headers=headers
+    ).json()["token"]
+
+    # No Authorization header: the query token authorises both downloads.
+    single = client.get(
+        f"/api/packages/{pkg_id}/files/{file_id}/download",
+        params={"token": token},
+    )
+    assert single.status_code == 200
+    assert single.content == b"aaa"
+
+    archive = client.get(
+        f"/api/packages/{pkg_id}/download", params={"token": token}
+    )
+    assert archive.status_code == 200
+    assert archive.headers["content-type"] == "application/zip"
+
+
+def test_download_token_scoped_to_its_package(client: TestClient) -> None:
+    headers = register_and_login(client)
+    pkg_a = _create_package(client, headers)
+    pkg_b = _create_package(client, headers)
+    token = client.post(
+        f"/api/packages/{pkg_a}/download-token", headers=headers
+    ).json()["token"]
+
+    # A token issued for package A cannot download package B.
+    assert (
+        client.get(
+            f"/api/packages/{pkg_b}/download", params={"token": token}
+        ).status_code
+        == 404
+    )
+
+
+def test_download_without_any_auth_is_rejected(client: TestClient) -> None:
+    headers = register_and_login(client)
+    pkg_id = _create_package(client, headers)
+    # Neither a Bearer token nor a download token is supplied.
+    assert client.get(f"/api/packages/{pkg_id}/download").status_code == 404
+    assert client.post(f"/api/packages/{pkg_id}/download-token").status_code == 401
+
+
 def test_delete_all_files(client: TestClient) -> None:
     headers = register_and_login(client)
     pkg_id = _create_package(client, headers)

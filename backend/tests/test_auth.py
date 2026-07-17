@@ -8,6 +8,14 @@ from fastapi.testclient import TestClient
 from tests.conftest import register_and_login
 
 
+def test_auth_config_exposes_limits(client: TestClient) -> None:
+    resp = client.get("/api/auth/config")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["allow_registration"] is True
+    assert body["max_file_size"] > 0
+
+
 def test_register_and_login(client: TestClient) -> None:
     resp = client.post(
         "/api/auth/register",

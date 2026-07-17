@@ -7,11 +7,19 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession, OwnedFile, OwnedPackage
+from app.api.deps import (
+    CurrentUser,
+    DbSession,
+    DownloadablePackage,
+    OwnedFile,
+    OwnedPackage,
+)
 from app.core.config import settings
 from app.core.rate_limit import EXPENSIVE, limiter
+from app.core.security import create_download_token
 from app.models.models import AuditEvent, Package, PackageFile
 from app.schemas.schemas import (
+    DownloadToken,
     MessageResponse,
     PackageCreate,
     PackageFileRead,
@@ -229,9 +237,27 @@ def upload_file(
     return record
 
 
+@router.post("/{package_id}/download-token", response_model=DownloadToken)
+def create_package_download_token(package: OwnedPackage) -> DownloadToken:
+    """Issue a short-lived token to download this package via a plain navigation.
+
+    The SPA fetches a token, then points the browser at the download URL with
+    the token in the query string, so files/archives stream to disk instead of
+    being buffered in memory behind an Authorization header.
+    """
+    return DownloadToken(token=create_download_token(package.owner_id, package.id))
+
+
 @router.get("/{package_id}/files/{file_id}/download")
-def download_owned_file(record: OwnedFile) -> Response:
-    """Download a file from an owned package."""
+def download_owned_file(
+    file_id: int, package: DownloadablePackage, db: DbSession
+) -> Response:
+    """Download a single file from an owned package."""
+    record = db.get(PackageFile, file_id)
+    if record is None or record.package_id != package.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="File not found"
+        )
     return storage.download_response(
         record.storage_key,
         filename=record.filename,
@@ -241,8 +267,8 @@ def download_owned_file(record: OwnedFile) -> Response:
 
 @router.get("/{package_id}/download")
 @limiter.limit(EXPENSIVE)
-def download_all_files(package: OwnedPackage, request: Request) -> FileResponse:
-    """Download every file in an owned package as a single zip archive."""
+def download_all_files(package: DownloadablePackage, request: Request) -> FileResponse:
+    """Download every file in a package as a single zip archive."""
     files = list(package.files)
     validate_archive_request(files, empty_detail="No files to download")
     return build_archive_download(files, package_name=package.name)
