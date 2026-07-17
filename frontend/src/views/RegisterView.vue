@@ -68,19 +68,19 @@ async function submit(): Promise<void> {
           <div class="space-y-2">
             <Label for="email">Email</Label>
             <Tooltip content="Enter a valid email address" :open="showEmailError">
-              <Input id="email" v-model="email" type="email" placeholder="you@example.com" />
+              <Input id="email" v-model="email" type="email" placeholder="joao@example.com" />
             </Tooltip>
           </div>
           <div class="space-y-2">
             <Label for="username">Username</Label>
-            <Input id="username" v-model="username" placeholder="alice" />
+            <Input id="username" v-model="username" placeholder="joao" />
             <p class="text-xs text-muted-foreground">
               3+ characters: letters, numbers, dot, underscore or hyphen.
             </p>
           </div>
           <div class="space-y-2">
             <Label for="password">Password</Label>
-            <Input id="password" v-model="password" type="password" />
+            <Input id="password" v-model="password" type="password" placeholder="Password" />
             <p class="text-xs text-muted-foreground">At least 8 characters.</p>
           </div>
           <Alert v-if="error" kind="error">{{ error }}</Alert>

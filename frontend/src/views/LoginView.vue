@@ -54,11 +54,11 @@ async function submit(): Promise<void> {
         <CardContent class="space-y-4">
           <div class="space-y-2">
             <Label for="identifier">Username or email</Label>
-            <Input id="identifier" v-model="identifier" placeholder="alice" />
+            <Input id="identifier" v-model="identifier" placeholder="joao" />
           </div>
           <div class="space-y-2">
             <Label for="password">Password</Label>
-            <Input id="password" v-model="password" type="password" />
+            <Input id="password" v-model="password" type="password" placeholder="Password" />
           </div>
           <Alert v-if="error" kind="error">{{ error }}</Alert>
         </CardContent>
