@@ -15,7 +15,10 @@ const emit = defineEmits<{
 
 const model = computed({
   get: () => props.modelValue ?? "",
-  set: (value: string) => emit("update:modelValue", value),
+  // A native <input type="number"> makes Vue's v-model coerce the value to a
+  // number; stringify so the emitted model always matches the declared
+  // `string` contract and consumers can safely call string methods on it.
+  set: (value: string | number) => emit("update:modelValue", String(value)),
 });
 </script>
 
