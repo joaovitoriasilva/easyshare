@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ArrowLeft, Download, Pencil, Trash2, Upload } from "lucide-vue-next";
 import { packagesApi, sharesApi } from "@/api";
@@ -10,6 +10,7 @@ import { downloadUrl } from "@/lib/download";
 import { invalidEmails, parseEmailList } from "@/lib/validation";
 import { useToasts } from "@/composables/useToasts";
 import { useConfirm } from "@/composables/useConfirm";
+import { useUploads } from "@/composables/useUploads";
 import { useAuthStore } from "@/stores/auth";
 import {
   Alert,
@@ -37,17 +38,16 @@ const share = ref<Share | null>(null);
 const stats = ref<PackageStats | null>(null);
 const error = ref<string | null>(null);
 const loading = ref(true);
-const uploading = ref(false);
 const downloadingAll = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 const dragging = ref(false);
 
-interface UploadItem {
-  name: string;
-  progress: number;
-  status: "uploading" | "done" | "error";
-}
-const uploads = ref<UploadItem[]>([]);
+// Upload state lives in a module-level composable, keyed by package id, so a
+// running upload's progress is preserved when the user leaves this package and
+// comes back to it.
+const { uploadsFor, isUploading, startUploads } = useUploads();
+const uploads = uploadsFor(packageId);
+const uploading = isUploading(packageId);
 
 const editing = ref(false);
 const editName = ref("");
@@ -133,63 +133,14 @@ async function saveDetails(): Promise<void> {
   }
 }
 
-async function uploadFiles(files: File[]): Promise<void> {
-  if (uploading.value || files.length === 0) {
-    return;
-  }
-  const maxSize = auth.maxFileSize;
-  const tooLarge = files.filter((file) => file.size > maxSize);
-  const valid = files.filter((file) => file.size <= maxSize);
-  if (tooLarge.length > 0) {
-    const names = tooLarge.map((file) => file.name).join(", ");
-    toast.error(
-      `${names} exceed${tooLarge.length === 1 ? "s" : ""} the ${formatBytes(maxSize)} limit`,
-    );
-  }
-  if (valid.length === 0) {
-    return;
-  }
-  uploading.value = true;
-  uploads.value = valid.map((file) => ({
-    name: file.name,
-    progress: 0,
-    status: "uploading",
-  }));
-  let uploaded = 0;
-  try {
-    for (let index = 0; index < valid.length; index += 1) {
-      const item = uploads.value[index];
-      try {
-        await packagesApi.uploadFile(packageId, valid[index], (fraction) => {
-          item.progress = fraction;
-        });
-        item.progress = 1;
-        item.status = "done";
-        uploaded += 1;
-      } catch (err) {
-        item.status = "error";
-        toast.error(
-          `${item.name}: ${err instanceof ApiError ? err.message : "Upload failed"}`,
-        );
-      }
-    }
-    if (uploaded > 0) {
-      pkg.value = await packagesApi.get(packageId);
-      toast.success(`Uploaded ${uploaded} file${uploaded === 1 ? "" : "s"}`);
-    }
-  } finally {
-    uploading.value = false;
-    // Clear the progress list unless something failed (keep failures visible).
-    if (uploads.value.every((item) => item.status === "done")) {
-      uploads.value = [];
-    }
-  }
+function runUploads(files: File[]): void {
+  void startUploads(packageId, files, auth.maxFileSize);
 }
 
 function onUpload(event: Event): void {
   const target = event.target as HTMLInputElement;
   const files = target.files ? Array.from(target.files) : [];
-  void uploadFiles(files);
+  runUploads(files);
   target.value = "";
 }
 
@@ -197,9 +148,25 @@ function onDrop(event: DragEvent): void {
   dragging.value = false;
   const files = event.dataTransfer?.files;
   if (files && files.length > 0) {
-    void uploadFiles(Array.from(files));
+    runUploads(Array.from(files));
   }
 }
+
+// Refresh the file list once an upload batch finishes. A watcher (rather than
+// awaiting the upload) means the view still updates even if it was unmounted
+// while the upload ran and then remounted before it completed.
+watch(uploading, (active, wasActive) => {
+  if (wasActive && !active) {
+    packagesApi
+      .get(packageId)
+      .then((value) => {
+        pkg.value = value;
+      })
+      .catch(() => {
+        /* a subsequent load() will surface any real error */
+      });
+  }
+});
 
 async function removeFile(fileId: number): Promise<void> {
   const confirmed = await confirm({

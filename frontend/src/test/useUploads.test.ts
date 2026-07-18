@@ -1,0 +1,108 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "@/api/client";
+
+const { uploadFileMock } = vi.hoisted(() => ({ uploadFileMock: vi.fn() }));
+
+vi.mock("@/api", () => ({
+  packagesApi: { uploadFile: uploadFileMock },
+}));
+
+// Keep the composable isolated from real toasts (and their timers).
+vi.mock("@/composables/useToasts", () => ({
+  useToasts: () => ({
+    success: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warning: vi.fn(),
+    notify: vi.fn(),
+    dismiss: vi.fn(),
+    toasts: { value: [] },
+  }),
+}));
+
+import { useUploads } from "@/composables/useUploads";
+
+const makeFile = (name: string, bytes = "ab"): File => new File([bytes], name);
+
+beforeEach(() => {
+  uploadFileMock.mockReset();
+});
+
+describe("useUploads", () => {
+  it("uploads files and clears the batch once all succeed", async () => {
+    uploadFileMock.mockImplementation(
+      (_id: number, _file: File, onProgress?: (f: number) => void) => {
+        onProgress?.(0.5);
+        onProgress?.(1);
+        return Promise.resolve();
+      },
+    );
+    const { uploadsFor, isUploading, startUploads } = useUploads();
+    const items = uploadsFor(1);
+
+    const count = await startUploads(1, [makeFile("a.txt")], 1000);
+
+    expect(count).toBe(1);
+    expect(isUploading(1).value).toBe(false);
+    expect(items.value).toEqual([]);
+  });
+
+  it("exposes in-flight progress to any caller, surviving a remount", async () => {
+    let resolveUpload: () => void = () => {};
+    let report: ((fraction: number) => void) | undefined;
+    uploadFileMock.mockImplementation(
+      (_id: number, _file: File, onProgress?: (f: number) => void) => {
+        report = onProgress;
+        return new Promise<void>((resolve) => {
+          resolveUpload = resolve;
+        });
+      },
+    );
+
+    // The view that started the upload.
+    const started = useUploads();
+    const done = started.startUploads(2, [makeFile("a.txt")], 1000);
+
+    // A fresh composable instance (like the view remounted after navigating
+    // away and back) sees the same in-flight batch and its progress.
+    const remounted = useUploads();
+    const items = remounted.uploadsFor(2);
+    expect(remounted.isUploading(2).value).toBe(true);
+    expect(items.value).toHaveLength(1);
+    expect(items.value[0].progress).toBe(0);
+
+    report?.(0.42);
+    expect(items.value[0].progress).toBe(0.42);
+
+    resolveUpload();
+    await done;
+    expect(remounted.isUploading(2).value).toBe(false);
+  });
+
+  it("rejects files over the size limit and uploads the rest", async () => {
+    uploadFileMock.mockResolvedValue(undefined);
+    const { startUploads, isUploading } = useUploads();
+    const big = makeFile("big.txt", "abcdef"); // 6 bytes
+    const small = makeFile("small.txt", "ab"); // 2 bytes
+
+    const count = await startUploads(3, [big, small], 3);
+
+    expect(count).toBe(1);
+    expect(uploadFileMock).toHaveBeenCalledTimes(1);
+    expect(uploadFileMock.mock.calls[0][1]).toBe(small);
+    expect(isUploading(3).value).toBe(false);
+  });
+
+  it("keeps a failed batch visible instead of clearing it", async () => {
+    uploadFileMock.mockRejectedValue(new ApiError(500, "boom"));
+    const { startUploads, uploadsFor, isUploading } = useUploads();
+
+    const count = await startUploads(4, [makeFile("a.txt")], 1000);
+
+    expect(count).toBe(0);
+    expect(isUploading(4).value).toBe(false);
+    const items = uploadsFor(4).value;
+    expect(items).toHaveLength(1);
+    expect(items[0].status).toBe("error");
+  });
+});
