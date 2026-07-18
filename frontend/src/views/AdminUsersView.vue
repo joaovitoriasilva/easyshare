@@ -8,7 +8,7 @@ import { useToasts } from "@/composables/useToasts";
 import { useConfirm } from "@/composables/useConfirm";
 import { isValidEmail } from "@/lib/validation";
 import { formatBytes } from "@/lib/format";
-import { Button, Input, Tooltip } from "@/components/ui";
+import { Button, Input, Skeleton, Tooltip } from "@/components/ui";
 
 const auth = useAuthStore();
 const toast = useToasts();
@@ -200,7 +200,9 @@ onMounted(load);
       </div>
     </div>
 
-    <p v-if="loading" class="text-muted-foreground">Loading...</p>
+    <div v-if="loading" class="space-y-2">
+      <Skeleton v-for="n in 6" :key="n" class="h-12 w-full" />
+    </div>
     <template v-else>
       <div class="overflow-x-auto rounded-md border">
         <table class="w-full text-sm">

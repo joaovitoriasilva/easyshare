@@ -21,6 +21,7 @@ import {
   CardTitle,
   Input,
   Label,
+  Skeleton,
   Tooltip,
 } from "@/components/ui";
 
@@ -371,7 +372,20 @@ onMounted(load);
     </Button>
 
     <Alert v-if="error" kind="error">{{ error }}</Alert>
-    <p v-if="loading" class="text-muted-foreground">Loading...</p>
+
+    <div v-if="loading" class="space-y-4">
+      <div class="flex items-center justify-between gap-4">
+        <div class="space-y-2">
+          <Skeleton class="h-8 w-48" />
+          <Skeleton class="h-4 w-64" />
+        </div>
+        <Skeleton class="h-9 w-40 shrink-0" />
+      </div>
+      <div class="grid gap-4 lg:grid-cols-2">
+        <Skeleton class="h-56 w-full rounded-lg" />
+        <Skeleton class="h-56 w-full rounded-lg" />
+      </div>
+    </div>
 
     <template v-else-if="pkg">
       <div v-if="!editing" class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

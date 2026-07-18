@@ -5,7 +5,7 @@ import { ApiError } from "@/api/client";
 import type { AuditEvent } from "@/api/types";
 import { useToasts } from "@/composables/useToasts";
 import AuditLogTable from "@/components/AuditLogTable.vue";
-import { Button, Input, Label } from "@/components/ui";
+import { Button, Input, Label, Skeleton } from "@/components/ui";
 
 const toast = useToasts();
 const events = ref<AuditEvent[]>([]);
@@ -75,7 +75,9 @@ onMounted(load);
       <Button type="submit" variant="outline" size="sm">Filter</Button>
     </form>
 
-    <p v-if="loading" class="text-muted-foreground">Loading...</p>
+    <div v-if="loading" class="space-y-2">
+      <Skeleton v-for="n in 6" :key="n" class="h-10 w-full" />
+    </div>
     <template v-else>
       <AuditLogTable :events="events" />
       <div class="flex items-center justify-between text-sm text-muted-foreground">

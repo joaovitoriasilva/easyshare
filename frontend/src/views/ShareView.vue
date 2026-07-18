@@ -20,6 +20,7 @@ import {
   Checkbox,
   Input,
   Label,
+  Skeleton,
   Tooltip,
 } from "@/components/ui";
 
@@ -106,7 +107,17 @@ onMounted(load);
 
 <template>
   <div class="mx-auto max-w-2xl">
-    <p v-if="loading" class="text-muted-foreground">Loading...</p>
+    <Card v-if="loading">
+      <CardHeader class="space-y-2">
+        <Skeleton class="h-6 w-1/2" />
+        <Skeleton class="h-4 w-3/4" />
+      </CardHeader>
+      <CardContent class="space-y-3">
+        <Skeleton class="h-10 w-full" />
+        <Skeleton class="h-10 w-full" />
+        <Skeleton class="h-10 w-full" />
+      </CardContent>
+    </Card>
 
     <Card v-else-if="error && !share">
       <CardHeader>

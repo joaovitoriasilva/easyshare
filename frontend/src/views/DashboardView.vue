@@ -16,6 +16,7 @@ import {
   CardTitle,
   Input,
   Label,
+  Skeleton,
 } from "@/components/ui";
 
 const toast = useToasts();
@@ -119,7 +120,15 @@ onMounted(load);
     </Card>
 
     <Alert v-if="error" kind="error">{{ error }}</Alert>
-    <p v-if="loading" class="text-muted-foreground">Loading...</p>
+
+    <div v-if="loading" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <Card v-for="n in 6" :key="n" class="h-full">
+        <CardHeader class="space-y-3">
+          <Skeleton class="h-5 w-2/3" />
+          <Skeleton class="h-4 w-1/3" />
+        </CardHeader>
+      </Card>
+    </div>
 
     <div v-else-if="packages.length === 0" class="text-center text-muted-foreground py-12">
       <FileArchive class="mx-auto mb-3 h-10 w-10" />
