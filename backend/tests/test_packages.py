@@ -389,6 +389,36 @@ def test_upload_respects_total_storage_quota(
     assert resp.status_code == 413
 
 
+def test_over_quota_upload_rejected_before_storage_write(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A known over-quota upload is refused before any DB row or storage write.
+
+    ``storage.save`` is replaced with a tripwire: reaching it means the early
+    size/quota guard failed to short-circuit and resources were spent for a
+    doomed upload.
+    """
+    monkeypatch.setattr(settings, "storage_quota_per_user", 4)
+    headers = register_and_login(client)
+    pkg_id = _create_package(client, headers)
+
+    def _tripwire(*args: object, **kwargs: object) -> int:
+        raise AssertionError("storage.save must not run for an over-quota upload")
+
+    monkeypatch.setattr(storage, "save", _tripwire)
+
+    resp = client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("big.txt", io.BytesIO(b"toolarge"), "text/plain")},
+        headers=headers,
+    )
+    assert resp.status_code == 413
+
+    # No row was persisted for the rejected upload.
+    pkg = client.get(f"/api/packages/{pkg_id}", headers=headers).json()
+    assert pkg["files"] == []
+
+
 def test_new_user_quota_defaults_to_configured_value(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

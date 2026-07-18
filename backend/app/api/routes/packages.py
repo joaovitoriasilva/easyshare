@@ -182,9 +182,10 @@ def upload_file(
     safe_filename = sanitize_upload_filename(file.filename)
 
     # The effective write cap is the smallest of the per-file limit and any
-    # remaining per-user / instance-wide storage quota (0 = unlimited). Enforcing
-    # it as the streaming ``max_bytes`` means an over-quota upload is aborted
-    # mid-write instead of being fully written and then rejected.
+    # remaining per-user / instance-wide storage quota (0 = unlimited). It is
+    # enforced up front against the upload's known size (below) so a doomed
+    # upload never touches the database or storage, and again as the streaming
+    # ``max_bytes`` fallback for the rare client that streams without a size.
     limits: list[tuple[int, str]] = [
         (settings.max_file_size, "File exceeds the maximum allowed size")
     ]
@@ -198,7 +199,11 @@ def upload_file(
             (remaining_total, "Upload would exceed the server storage limit")
         )
     cap, cap_message = min(limits, key=lambda item: item[0])
-    if cap <= 0:
+    # Reject before spending resources: bail out now — before creating the DB
+    # row or writing any bytes — if the quota is already exhausted (cap <= 0) or
+    # the upload's reported size already exceeds the cap. Starlette has counted
+    # the spooled upload into ``file.size`` by the time this handler runs.
+    if cap <= 0 or (file.size is not None and file.size > cap):
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=cap_message
         )
