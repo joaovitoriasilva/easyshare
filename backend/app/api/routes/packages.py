@@ -205,7 +205,7 @@ def upload_file(
     # the spooled upload into ``file.size`` by the time this handler runs.
     if cap <= 0 or (file.size is not None and file.size > cap):
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=cap_message
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=cap_message
         )
 
     # Persist the row first (without committing) so that, when obfuscation is
@@ -232,7 +232,7 @@ def upload_file(
     except FileTooLargeError as exc:
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=cap_message,
         ) from exc
 

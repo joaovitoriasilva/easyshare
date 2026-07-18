@@ -48,7 +48,7 @@ def validate_archive_request(
         )
     if sum(file.size for file in files) > settings.max_archive_size:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail="The selected files exceed the maximum archive size",
         )
 
