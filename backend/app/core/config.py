@@ -157,19 +157,30 @@ class Settings(BaseSettings):
     def _guard_distributed_shared_state(self) -> Settings:
         """A distributed deployment must not rely on process-local state.
 
-        With more than one worker/replica an in-memory rate-limit store is
-        per-process, so the configured limits would effectively be multiplied by
-        the number of processes. Fail fast and require a shared Redis store
-        instead of degrading silently.
+        With more than one worker/replica both the rate-limit store and the
+        database must be shared across processes: an in-memory rate-limit store
+        is per-process (limits would be multiplied by the process count), and
+        SQLite is single-writer and file-local (it cannot be shared between
+        replicas). Fail fast on either rather than degrading silently.
         """
         if self.deployment_profile != "distributed":
             return self
-        uri = self.rate_limit_storage_uri.strip().lower()
-        if not uri or uri.startswith("memory://"):
+        problems: list[str] = []
+        rate_limit_uri = self.rate_limit_storage_uri.strip().lower()
+        if not rate_limit_uri or rate_limit_uri.startswith("memory://"):
+            problems.append(
+                "a shared rate-limit store is required: set "
+                "EASYSHARE_RATE_LIMIT_STORAGE_URI to a redis:// URI"
+            )
+        if self.database_url.strip().lower().startswith("sqlite"):
+            problems.append(
+                "a shared database is required: set EASYSHARE_DATABASE_URL to a "
+                "server database such as postgresql+psycopg://... (SQLite "
+                "cannot be shared across replicas)"
+            )
+        if problems:
             raise ValueError(
-                "EASYSHARE_DEPLOYMENT_PROFILE=distributed requires a shared "
-                "rate-limit store: set EASYSHARE_RATE_LIMIT_STORAGE_URI to a "
-                "redis:// URI"
+                "EASYSHARE_DEPLOYMENT_PROFILE=distributed: " + "; ".join(problems)
             )
         return self
 

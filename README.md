@@ -201,7 +201,8 @@ state shared across processes, so switch three backends and declare the topology
 - **Shared database.** SQLite is single-writer and file-local, so point
   `EASYSHARE_DATABASE_URL` at a server database, e.g.
   `postgresql+psycopg://user:pass@host/easyshare` (the PostgreSQL driver ships in
-  the `postgres` extra).
+  the `postgres` extra). Like the rate-limit store, the `distributed` profile
+  refuses to start while this is left on SQLite.
 - **Shared rate-limit store.** Point `EASYSHARE_RATE_LIMIT_STORAGE_URI` at Redis
   (e.g. `redis://redis:6379/0`) so limits are enforced across the fleet rather
   than per-process. Set `EASYSHARE_DEPLOYMENT_PROFILE=distributed`; the app then
