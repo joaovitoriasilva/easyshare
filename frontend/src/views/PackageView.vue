@@ -458,50 +458,20 @@ onMounted(load);
               </div>
             </div>
 
-            <ul v-if="uploads.length" class="space-y-2">
-              <li v-for="(item, index) in uploads" :key="item.id" class="space-y-1">
+            <ul v-if="uploads.length" class="space-y-3">
+              <li v-for="(item, index) in uploads" :key="item.id" class="space-y-1.5">
                 <div class="flex items-center justify-between gap-2 text-xs">
                   <span class="min-w-0 truncate">{{ item.name }}</span>
-                  <div class="flex shrink-0 items-center gap-1.5">
-                    <span
-                      :class="
-                        item.status === 'error' || item.status === 'canceled'
-                          ? 'text-destructive'
-                          : 'text-muted-foreground'
-                      "
-                    >
-                      {{ uploadStatusLabel(item) }}
-                    </span>
-                    <button
-                      v-if="item.status === 'uploading'"
-                      type="button"
-                      class="rounded p-0.5 text-muted-foreground hover:text-foreground"
-                      aria-label="Cancel upload"
-                      @click="cancelUpload(packageId, index)"
-                    >
-                      <X class="h-3.5 w-3.5" />
-                    </button>
-                    <template
-                      v-else-if="item.status === 'error' || item.status === 'canceled'"
-                    >
-                      <button
-                        type="button"
-                        class="rounded p-0.5 text-muted-foreground hover:text-foreground"
-                        aria-label="Retry upload"
-                        @click="retryUpload(packageId, index)"
-                      >
-                        <RotateCw class="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        class="rounded p-0.5 text-muted-foreground hover:text-foreground"
-                        aria-label="Dismiss upload"
-                        @click="dismissUpload(packageId, index)"
-                      >
-                        <X class="h-3.5 w-3.5" />
-                      </button>
-                    </template>
-                  </div>
+                  <span
+                    class="shrink-0"
+                    :class="
+                      item.status === 'error' || item.status === 'canceled'
+                        ? 'text-destructive'
+                        : 'text-muted-foreground'
+                    "
+                  >
+                    {{ uploadStatusLabel(item) }}
+                  </span>
                 </div>
                 <div class="h-1.5 overflow-hidden rounded-full bg-muted">
                   <div
@@ -513,6 +483,37 @@ onMounted(load);
                     "
                     :style="{ width: `${Math.round(item.progress * 100)}%` }"
                   />
+                </div>
+                <div v-if="item.status === 'uploading'">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    class="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground"
+                    @click="cancelUpload(packageId, index)"
+                  >
+                    <X class="h-4 w-4" /> Cancel
+                  </Button>
+                </div>
+                <div
+                  v-else-if="item.status === 'error' || item.status === 'canceled'"
+                  class="flex flex-wrap gap-2"
+                >
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    class="h-8 gap-1.5 px-2.5 text-xs"
+                    @click="retryUpload(packageId, index)"
+                  >
+                    <RotateCw class="h-4 w-4" /> Retry
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    class="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground"
+                    @click="dismissUpload(packageId, index)"
+                  >
+                    <X class="h-4 w-4" /> Dismiss
+                  </Button>
                 </div>
               </li>
             </ul>
