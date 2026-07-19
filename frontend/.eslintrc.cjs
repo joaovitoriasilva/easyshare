@@ -22,5 +22,5 @@ module.exports = {
     "vue/html-self-closing": "off",
     "vue/require-default-prop": "off",
   },
-  ignorePatterns: ["dist/", "node_modules/", "*.config.*"],
+  ignorePatterns: ["dist/", "node_modules/", "*.config.*", "src/types/api.generated.ts"],
 };

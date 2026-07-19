@@ -3,3 +3,7 @@ dist/
 *.local
 .vite/
 coverage/
+
+# Intermediate OpenAPI schema, regenerated from the backend by the drift CI job
+# and by `npm run gen:api`; only the generated types file is committed.
+/openapi.json
