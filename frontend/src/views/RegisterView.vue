@@ -16,6 +16,7 @@ import {
   CardTitle,
   Input,
   Label,
+  PasswordInput,
   Tooltip,
 } from "@/components/ui";
 
@@ -80,7 +81,7 @@ async function submit(): Promise<void> {
           </div>
           <div class="space-y-2">
             <Label for="password">Password</Label>
-            <Input id="password" v-model="password" type="password" placeholder="Password" />
+            <PasswordInput id="password" v-model="password" placeholder="Password" />
             <p class="text-xs text-muted-foreground">At least 8 characters.</p>
           </div>
           <Alert v-if="error" kind="error">{{ error }}</Alert>

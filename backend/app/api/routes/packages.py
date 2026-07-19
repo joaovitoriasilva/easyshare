@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import (
@@ -38,6 +38,11 @@ _VIEW_ACTIONS = ("share.view", "share.access.granted")
 router = APIRouter(prefix="/packages", tags=["packages"])
 
 
+def _escape_like(value: str) -> str:
+    """Escape LIKE wildcards so a user's search term is matched literally."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @router.post("", response_model=PackageRead, status_code=status.HTTP_201_CREATED)
 def create_package(
     payload: PackageCreate, db: DbSession, current_user: CurrentUser
@@ -60,25 +65,32 @@ def list_packages(
     current_user: CurrentUser,
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    q: str | None = Query(default=None, max_length=255),
 ) -> PackagePage:
     """List packages owned by the current user, newest first (paginated).
 
     ``files`` are eager-loaded with ``selectinload`` so serialising the page
     issues one extra query instead of one per package (avoids N+1). ``total``
-    lets the client render page controls without fetching every package.
+    lets the client render page controls without fetching every package. An
+    optional ``q`` filters by a case-insensitive substring of the package name
+    or description.
     """
-    total = (
-        db.scalar(
-            select(func.count())
-            .select_from(Package)
-            .where(Package.owner_id == current_user.id)
+    filters = [Package.owner_id == current_user.id]
+    if q and q.strip():
+        pattern = f"%{_escape_like(q.strip())}%"
+        filters.append(
+            or_(
+                Package.name.ilike(pattern, escape="\\"),
+                Package.description.ilike(pattern, escape="\\"),
+            )
         )
-        or 0
+    total = (
+        db.scalar(select(func.count()).select_from(Package).where(*filters)) or 0
     )
     items = list(
         db.scalars(
             select(Package)
-            .where(Package.owner_id == current_user.id)
+            .where(*filters)
             .order_by(Package.created_at.desc())
             .options(selectinload(Package.files))
             .limit(limit)

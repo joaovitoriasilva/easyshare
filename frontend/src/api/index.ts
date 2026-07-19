@@ -10,7 +10,9 @@ import type {
   PackagePage,
   PackageStats,
   PublicShare,
+  ServiceSettings,
   Share,
+  StorageUsage,
   User,
   UserPage,
   Visibility,
@@ -44,14 +46,28 @@ export const authApi = {
   async me(): Promise<User> {
     return api.request<User>("/auth/me", { skipAuthRedirect: true });
   },
+
+  async usage(): Promise<StorageUsage> {
+    return api.request<StorageUsage>("/auth/me/usage");
+  },
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    await api.request<void>("/auth/me/password", {
+      method: "POST",
+      body: { current_password: currentPassword, new_password: newPassword },
+    });
+  },
 };
 
 export const packagesApi = {
-  list(params: { limit?: number; offset?: number } = {}): Promise<PackagePage> {
-    const q = new URLSearchParams();
-    q.set("limit", String(params.limit ?? 50));
-    q.set("offset", String(params.offset ?? 0));
-    return api.request<PackagePage>(`/packages?${q.toString()}`);
+  list(params: { limit?: number; offset?: number; q?: string } = {}): Promise<PackagePage> {
+    const query = new URLSearchParams();
+    query.set("limit", String(params.limit ?? 50));
+    query.set("offset", String(params.offset ?? 0));
+    if (params.q && params.q.trim()) {
+      query.set("q", params.q.trim());
+    }
+    return api.request<PackagePage>(`/packages?${query.toString()}`);
   },
   get(id: number): Promise<Package> {
     return api.request<Package>(`/packages/${id}`);
@@ -78,8 +94,9 @@ export const packagesApi = {
     id: number,
     file: File,
     onProgress?: (fraction: number) => void,
+    signal?: AbortSignal,
   ): Promise<void> {
-    return api.upload<void>(`/packages/${id}/files`, file, { onProgress });
+    return api.upload<void>(`/packages/${id}/files`, file, { onProgress, signal });
   },
   removeFile(packageId: number, fileId: number): Promise<void> {
     return api.request<void>(`/packages/${packageId}/files/${fileId}`, {
@@ -219,5 +236,14 @@ export const adminApi = {
   },
   deleteUser(id: number): Promise<void> {
     return api.request<void>(`/admin/users/${id}`, { method: "DELETE" });
+  },
+  settings(): Promise<ServiceSettings> {
+    return api.request<ServiceSettings>("/admin/settings");
+  },
+  resetPassword(id: number, newPassword: string): Promise<void> {
+    return api.request<void>(`/admin/users/${id}/password`, {
+      method: "POST",
+      body: { new_password: newPassword },
+    });
   },
 };

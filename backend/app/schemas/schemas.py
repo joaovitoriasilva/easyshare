@@ -67,6 +67,58 @@ class BulkQuotaResult(BaseModel):
     updated: int
 
 
+class ServiceSettingsRead(BaseModel):
+    """Non-sensitive runtime configuration for the admin settings view.
+
+    Assembled from an explicit allow-list in the route: the JWT signing secret
+    is never included, and connection strings (database, rate-limit store,
+    object storage) are reduced to their backend/scheme so no host or embedded
+    credential can leak.
+    """
+
+    # Core
+    app_name: str
+    environment: str
+    deployment_profile: str
+    allow_registration: bool
+
+    # Authentication / tokens
+    algorithm: str
+    access_token_expire_minutes: int
+    share_access_token_expire_minutes: int
+
+    # Database (backend/scheme only — never the DSN or credentials)
+    database_backend: str
+    db_pool_size: int
+    db_max_overflow: int
+    db_pool_timeout: int
+
+    # Storage
+    storage_backend: str
+    obfuscate_storage_names: bool
+    max_file_size: int
+    max_files_per_package: int
+    max_archive_size: int
+    max_concurrent_archive_builds: int
+
+    # Quotas (bytes; 0 = unlimited)
+    storage_quota_total: int
+    storage_quota_per_user: int
+
+    # CORS
+    cors_origins: list[str]
+
+    # Rate limiting
+    rate_limit_enabled: bool
+    rate_limit_backend: str
+
+    # Logging & observability
+    log_level: str
+    log_format: str
+    audit_retention_days: int
+    audit_prune_interval_hours: int
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -80,6 +132,26 @@ class LoginRequest(BaseModel):
 class AuthConfig(BaseModel):
     allow_registration: bool
     max_file_size: int
+
+
+class StorageUsage(BaseModel):
+    """The signed-in user's current storage consumption and budget (bytes)."""
+
+    storage_used: int
+    storage_quota: int
+
+
+class PasswordChange(BaseModel):
+    """Self-service password change; the current password must be provided."""
+
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class PasswordReset(BaseModel):
+    """Administrator-initiated password reset for another user."""
+
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 # --- Packages --------------------------------------------------------------
@@ -229,3 +301,5 @@ class AuditPage(BaseModel):
     total: int
     limit: int
     offset: int
+    # Configured audit-log retention in days; 0 means events are kept forever.
+    retention_days: int

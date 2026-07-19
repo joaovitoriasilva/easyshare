@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
-import { FileArchive, Plus, Share2 } from "lucide-vue-next";
-import { packagesApi } from "@/api";
+import { FileArchive, Plus, Search, Share2 } from "lucide-vue-next";
+import { authApi, packagesApi } from "@/api";
 import { ApiError } from "@/api/client";
-import type { Package } from "@/api/types";
+import type { Package, StorageUsage } from "@/api/types";
+import { formatBytes } from "@/lib/format";
 import { useToasts } from "@/composables/useToasts";
 import {
   Alert,
@@ -28,16 +29,34 @@ const pageSize = 12;
 const loading = ref(true);
 const error = ref<string | null>(null);
 
+const search = ref("");
+const usage = ref<StorageUsage | null>(null);
+
 const showForm = ref(false);
 const name = ref("");
 const description = ref("");
 const creating = ref(false);
 
+const usagePercent = computed(() => {
+  const current = usage.value;
+  if (!current || current.storage_quota <= 0) {
+    return 0;
+  }
+  return Math.min(
+    100,
+    Math.round((current.storage_used / current.storage_quota) * 100),
+  );
+});
+
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
   try {
-    const page = await packagesApi.list({ limit: pageSize, offset: offset.value });
+    const page = await packagesApi.list({
+      limit: pageSize,
+      offset: offset.value,
+      q: search.value,
+    });
     packages.value = page.items;
     total.value = page.total;
   } catch (err) {
@@ -46,6 +65,27 @@ async function load(): Promise<void> {
     loading.value = false;
   }
 }
+
+async function loadUsage(): Promise<void> {
+  try {
+    usage.value = await authApi.usage();
+  } catch {
+    usage.value = null;
+  }
+}
+
+// Debounce search so typing doesn't fire a request per keystroke; reset to the
+// first page whenever the query changes.
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+watch(search, () => {
+  if (searchTimer) {
+    clearTimeout(searchTimer);
+  }
+  searchTimer = setTimeout(() => {
+    offset.value = 0;
+    void load();
+  }, 300);
+});
 
 function next(): void {
   if (offset.value + pageSize < total.value) {
@@ -82,7 +122,10 @@ async function create(): Promise<void> {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  void load();
+  void loadUsage();
+});
 </script>
 
 <template>
@@ -95,6 +138,38 @@ onMounted(load);
       <Button class="w-full sm:w-auto" @click="showForm = !showForm">
         <Plus class="h-4 w-4" /> New package
       </Button>
+    </div>
+
+    <Card v-if="usage">
+      <CardContent class="py-4">
+        <div class="mb-2 flex items-center justify-between gap-2 text-sm">
+          <span class="text-muted-foreground">Storage used</span>
+          <span class="font-medium">
+            {{ formatBytes(usage.storage_used) }}
+            <template v-if="usage.storage_quota > 0">
+              of {{ formatBytes(usage.storage_quota) }} ({{ usagePercent }}%)
+            </template>
+            <span v-else class="font-normal text-muted-foreground">(unlimited)</span>
+          </span>
+        </div>
+        <div
+          v-if="usage.storage_quota > 0"
+          class="h-2 overflow-hidden rounded-full bg-muted"
+        >
+          <div
+            class="h-full rounded-full transition-all"
+            :class="usagePercent >= 90 ? 'bg-destructive' : 'bg-primary'"
+            :style="{ width: `${usagePercent}%` }"
+          />
+        </div>
+      </CardContent>
+    </Card>
+
+    <div v-if="total > 0 || search.trim()" class="relative">
+      <Search
+        class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+      />
+      <Input v-model="search" placeholder="Search packages..." class="pl-9" />
     </div>
 
     <Card v-if="showForm">
@@ -132,7 +207,8 @@ onMounted(load);
 
     <div v-else-if="packages.length === 0" class="text-center text-muted-foreground py-12">
       <FileArchive class="mx-auto mb-3 h-10 w-10" />
-      <p>No packages yet. Create your first one above.</p>
+      <p v-if="search.trim()">No packages match “{{ search.trim() }}”.</p>
+      <p v-else>No packages yet. Create your first one above.</p>
     </div>
 
     <template v-else>

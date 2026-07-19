@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ArrowLeft, Download, Pencil, Trash2, Upload } from "lucide-vue-next";
+import { ArrowLeft, Download, Pencil, RotateCw, Trash2, Upload, X } from "lucide-vue-next";
 import { packagesApi, sharesApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { Package, PackageStats, Share, Visibility } from "@/api/types";
@@ -10,7 +10,7 @@ import { downloadUrl } from "@/lib/download";
 import { invalidEmails, parseEmailList } from "@/lib/validation";
 import { useToasts } from "@/composables/useToasts";
 import { useConfirm } from "@/composables/useConfirm";
-import { useUploads } from "@/composables/useUploads";
+import { useUploads, type UploadItem } from "@/composables/useUploads";
 import { useAuthStore } from "@/stores/auth";
 import {
   Alert,
@@ -45,7 +45,8 @@ const dragging = ref(false);
 // Upload state lives in a module-level composable, keyed by package id, so a
 // running upload's progress is preserved when the user leaves this package and
 // comes back to it.
-const { uploadsFor, isUploading, startUploads } = useUploads();
+const { uploadsFor, isUploading, startUploads, cancelUpload, retryUpload, dismissUpload } =
+  useUploads();
 const uploads = uploadsFor(packageId);
 const uploading = isUploading(packageId);
 
@@ -91,6 +92,16 @@ async function load(): Promise<void> {
 
 function fileDownloads(fileId: number): number {
   return stats.value?.file_downloads[fileId] ?? 0;
+}
+
+function uploadStatusLabel(item: UploadItem): string {
+  if (item.status === "error") {
+    return "Failed";
+  }
+  if (item.status === "canceled") {
+    return "Canceled";
+  }
+  return `${Math.round(item.progress * 100)}%`;
 }
 
 const emailIssues = computed(() => invalidEmails(emailsText.value));
@@ -448,22 +459,58 @@ onMounted(load);
             </div>
 
             <ul v-if="uploads.length" class="space-y-2">
-              <li v-for="(item, index) in uploads" :key="index" class="space-y-1">
+              <li v-for="(item, index) in uploads" :key="item.id" class="space-y-1">
                 <div class="flex items-center justify-between gap-2 text-xs">
                   <span class="min-w-0 truncate">{{ item.name }}</span>
-                  <span
-                    class="shrink-0"
-                    :class="
-                      item.status === 'error' ? 'text-destructive' : 'text-muted-foreground'
-                    "
-                  >
-                    {{ item.status === "error" ? "Failed" : Math.round(item.progress * 100) + "%" }}
-                  </span>
+                  <div class="flex shrink-0 items-center gap-1.5">
+                    <span
+                      :class="
+                        item.status === 'error' || item.status === 'canceled'
+                          ? 'text-destructive'
+                          : 'text-muted-foreground'
+                      "
+                    >
+                      {{ uploadStatusLabel(item) }}
+                    </span>
+                    <button
+                      v-if="item.status === 'uploading'"
+                      type="button"
+                      class="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                      aria-label="Cancel upload"
+                      @click="cancelUpload(packageId, index)"
+                    >
+                      <X class="h-3.5 w-3.5" />
+                    </button>
+                    <template
+                      v-else-if="item.status === 'error' || item.status === 'canceled'"
+                    >
+                      <button
+                        type="button"
+                        class="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                        aria-label="Retry upload"
+                        @click="retryUpload(packageId, index)"
+                      >
+                        <RotateCw class="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        class="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                        aria-label="Dismiss upload"
+                        @click="dismissUpload(packageId, index)"
+                      >
+                        <X class="h-3.5 w-3.5" />
+                      </button>
+                    </template>
+                  </div>
                 </div>
                 <div class="h-1.5 overflow-hidden rounded-full bg-muted">
                   <div
                     class="h-full rounded-full transition-all"
-                    :class="item.status === 'error' ? 'bg-destructive' : 'bg-primary'"
+                    :class="
+                      item.status === 'error' || item.status === 'canceled'
+                        ? 'bg-destructive'
+                        : 'bg-primary'
+                    "
                     :style="{ width: `${Math.round(item.progress * 100)}%` }"
                   />
                 </div>

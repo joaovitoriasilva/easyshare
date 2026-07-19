@@ -19,7 +19,16 @@ from app.core.security import (
     verify_password,
 )
 from app.models.models import User
-from app.schemas.schemas import AuthConfig, Token, UserCreate, UserRead
+from app.schemas.schemas import (
+    AuthConfig,
+    MessageResponse,
+    PasswordChange,
+    StorageUsage,
+    Token,
+    UserCreate,
+    UserRead,
+)
+from app.services.quota import user_storage_used
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -112,3 +121,49 @@ def login(
 def read_me(current_user: CurrentUser) -> User:
     """Return the currently authenticated user."""
     return current_user
+
+
+@router.get("/me/usage", response_model=StorageUsage)
+def read_my_usage(current_user: CurrentUser, db: DbSession) -> StorageUsage:
+    """Return the signed-in user's storage consumption and quota.
+
+    Kept separate from ``/auth/me`` (which the SPA polls on every navigation)
+    so the usage aggregate is only computed on the screens that display it.
+    """
+    return StorageUsage(
+        storage_used=user_storage_used(db, current_user.id),
+        storage_quota=current_user.storage_quota,
+    )
+
+
+@router.post("/me/password", response_model=MessageResponse)
+@limiter.limit(SENSITIVE)
+def change_my_password(
+    request: Request,
+    payload: PasswordChange,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> MessageResponse:
+    """Change the authenticated user's password.
+
+    The current password must be supplied and verified before the change is
+    applied, so an unattended, already-authenticated session cannot silently
+    set a new password. Access tokens are stateless and remain valid until they
+    expire; deactivating an account is the tool for an immediate lockout.
+    """
+    if not verify_password(payload.current_password, current_user.hashed_password):
+        record_event(
+            "user.password.change_failed",
+            request=request,
+            actor=f"user:{current_user.id}",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+    current_user.hashed_password = hash_password(payload.new_password)
+    db.commit()
+    record_event(
+        "user.password.change", request=request, actor=f"user:{current_user.id}"
+    )
+    return MessageResponse(detail="Password updated")

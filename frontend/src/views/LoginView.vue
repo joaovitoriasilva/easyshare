@@ -16,6 +16,7 @@ import {
   CardTitle,
   Input,
   Label,
+  PasswordInput,
 } from "@/components/ui";
 
 const auth = useAuthStore();
@@ -58,7 +59,7 @@ async function submit(): Promise<void> {
           </div>
           <div class="space-y-2">
             <Label for="password">Password</Label>
-            <Input id="password" v-model="password" type="password" placeholder="Password" />
+            <PasswordInput id="password" v-model="password" placeholder="Password" />
           </div>
           <Alert v-if="error" kind="error">{{ error }}</Alert>
         </CardContent>

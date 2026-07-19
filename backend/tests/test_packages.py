@@ -80,6 +80,49 @@ def test_list_packages_includes_files(client: TestClient) -> None:
     assert [f["filename"] for f in listing["items"][0]["files"]] == ["a.txt"]
 
 
+def test_list_packages_search_filters_by_name_and_description(
+    client: TestClient,
+) -> None:
+    headers = register_and_login(client)
+    client.post(
+        "/api/packages",
+        json={"name": "Vacation photos", "description": "beach"},
+        headers=headers,
+    )
+    client.post(
+        "/api/packages",
+        json={"name": "Work docs", "description": "quarterly report"},
+        headers=headers,
+    )
+
+    by_name = client.get(
+        "/api/packages", params={"q": "vacation"}, headers=headers
+    ).json()
+    assert [p["name"] for p in by_name["items"]] == ["Vacation photos"]
+    assert by_name["total"] == 1
+
+    by_desc = client.get(
+        "/api/packages", params={"q": "quarterly"}, headers=headers
+    ).json()
+    assert [p["name"] for p in by_desc["items"]] == ["Work docs"]
+
+    empty = client.get(
+        "/api/packages", params={"q": "nomatch"}, headers=headers
+    ).json()
+    assert empty["items"] == []
+    assert empty["total"] == 0
+
+
+def test_list_packages_search_escapes_wildcards(client: TestClient) -> None:
+    headers = register_and_login(client)
+    _create_package(client, headers)  # named "My Package"
+    # A LIKE wildcard must be matched literally, not as "match anything".
+    result = client.get(
+        "/api/packages", params={"q": "%"}, headers=headers
+    ).json()
+    assert result["items"] == []
+
+
 def test_package_requires_auth(client: TestClient) -> None:
     assert client.get("/api/packages").status_code == 401
 

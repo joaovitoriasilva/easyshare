@@ -225,3 +225,54 @@ def test_non_admin_cannot_set_all_quotas(client: TestClient) -> None:
         headers=bob_headers,
     )
     assert resp.status_code == 403
+
+
+def test_admin_can_reset_user_password(client: TestClient) -> None:
+    admin_headers = _login_after_register(client, "admin", "admin@example.com")
+    bob = _register(client, "bob", "bob@example.com", "bobpass1234")
+
+    resp = client.post(
+        f"/api/admin/users/{bob['id']}/password",
+        json={"new_password": "resetpass5678"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200
+
+    # Bob's original password no longer works; the reset one does.
+    assert (
+        client.post(
+            "/api/auth/login",
+            data={"username": "bob", "password": "bobpass1234"},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            "/api/auth/login",
+            data={"username": "bob", "password": "resetpass5678"},
+        ).status_code
+        == 200
+    )
+
+
+def test_non_admin_cannot_reset_password(client: TestClient) -> None:
+    admin = _register(client, "admin", "admin@example.com")
+    _register(client, "bob", "bob@example.com")
+    bob_headers = _login(client, "bob")
+
+    resp = client.post(
+        f"/api/admin/users/{admin['id']}/password",
+        json={"new_password": "hijackpass99"},
+        headers=bob_headers,
+    )
+    assert resp.status_code == 403
+
+
+def test_reset_password_unknown_user_returns_404(client: TestClient) -> None:
+    admin_headers = _login_after_register(client, "admin", "admin@example.com")
+    resp = client.post(
+        "/api/admin/users/9999/password",
+        json={"new_password": "whatever12345"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 404

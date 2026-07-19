@@ -5,6 +5,11 @@ export interface AuthConfig {
   max_file_size: number;
 }
 
+export interface StorageUsage {
+  storage_used: number;
+  storage_quota: number;
+}
+
 export interface User {
   id: number;
   email: string;
@@ -98,6 +103,42 @@ export interface AuditPage {
   total: number;
   limit: number;
   offset: number;
+  // Configured audit-log retention in days; 0 means events are kept forever.
+  retention_days: number;
+}
+
+/**
+ * Non-sensitive runtime configuration shown on the admin settings view.
+ * Secrets (the JWT signing key, connection credentials) are never included;
+ * connection strings are reduced to their backend/scheme by the server.
+ */
+export interface ServiceSettings {
+  app_name: string;
+  environment: string;
+  deployment_profile: string;
+  allow_registration: boolean;
+  algorithm: string;
+  access_token_expire_minutes: number;
+  share_access_token_expire_minutes: number;
+  database_backend: string;
+  db_pool_size: number;
+  db_max_overflow: number;
+  db_pool_timeout: number;
+  storage_backend: string;
+  obfuscate_storage_names: boolean;
+  max_file_size: number;
+  max_files_per_package: number;
+  max_archive_size: number;
+  max_concurrent_archive_builds: number;
+  storage_quota_total: number;
+  storage_quota_per_user: number;
+  cors_origins: string[];
+  rate_limit_enabled: boolean;
+  rate_limit_backend: string;
+  log_level: string;
+  log_format: string;
+  audit_retention_days: number;
+  audit_prune_interval_hours: number;
 }
 
 export interface UserPage {

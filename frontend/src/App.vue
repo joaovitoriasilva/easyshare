@@ -66,7 +66,20 @@ function logout(): void {
           >
             Audit
           </RouterLink>
-          <span v-if="auth.user" class="text-sm text-muted-foreground">{{ auth.user.username }}</span>
+          <RouterLink
+            v-if="auth.user?.is_admin"
+            :to="{ name: 'admin-settings' }"
+            class="text-sm text-muted-foreground hover:text-foreground"
+          >
+            Settings
+          </RouterLink>
+          <RouterLink
+            v-if="auth.user"
+            :to="{ name: 'profile' }"
+            class="text-sm text-muted-foreground hover:text-foreground"
+          >
+            {{ auth.user.username }}
+          </RouterLink>
           <ThemeToggle />
           <Button v-if="auth.user" variant="ghost" size="sm" @click="logout">
             <LogOut class="h-4 w-4" />
@@ -114,8 +127,20 @@ function logout(): void {
           >
             Audit
           </RouterLink>
+          <RouterLink
+            v-if="auth.user?.is_admin"
+            :to="{ name: 'admin-settings' }"
+            class="rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            Settings
+          </RouterLink>
           <div class="mt-1 flex items-center justify-between border-t pt-2">
-            <span class="px-2 text-sm text-muted-foreground">{{ auth.user.username }}</span>
+            <RouterLink
+              :to="{ name: 'profile' }"
+              class="rounded-md px-2 py-1 text-sm text-muted-foreground hover:text-foreground"
+            >
+              {{ auth.user.username }}
+            </RouterLink>
             <Button variant="ghost" size="sm" @click="logout">
               <LogOut class="h-4 w-4" />
               Sign out

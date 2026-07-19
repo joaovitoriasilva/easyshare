@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import register_and_login
@@ -63,6 +64,21 @@ def test_my_activity_action_filter(client: TestClient) -> None:
     assert all(e["action"] == "share.download" for e in resp["items"])
     # Parsed JSON detail is exposed as an object.
     assert resp["items"][0]["detail"]["filename"] == "a.txt"
+
+
+def test_audit_page_reports_retention_days(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "audit_retention_days", 90)
+    headers = register_and_login(client)
+
+    # Both the owner activity feed and the admin-wide log expose the policy.
+    mine = client.get("/api/audit/mine", headers=headers).json()
+    assert mine["retention_days"] == 90
+    all_log = client.get("/api/audit", headers=headers).json()
+    assert all_log["retention_days"] == 90
 
 
 def test_admin_endpoint_requires_admin(client: TestClient) -> None:

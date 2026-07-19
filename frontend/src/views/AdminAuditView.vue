@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { auditApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { AuditEvent } from "@/api/types";
@@ -15,6 +15,16 @@ const loading = ref(true);
 const action = ref("");
 const actor = ref("");
 const limit = 50;
+const retention = ref<number | null>(null);
+
+const retentionLabel = computed(() => {
+  if (retention.value === null) {
+    return "";
+  }
+  return retention.value > 0
+    ? `Events older than ${retention.value} day${retention.value === 1 ? "" : "s"} are automatically deleted.`
+    : "Events are kept indefinitely.";
+});
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -27,6 +37,7 @@ async function load(): Promise<void> {
     });
     events.value = page.items;
     total.value = page.total;
+    retention.value = page.retention_days;
   } catch (err) {
     toast.error(err instanceof ApiError ? err.message : "Failed to load audit log");
   } finally {
@@ -61,6 +72,9 @@ onMounted(load);
     <div>
       <h1 class="text-2xl font-bold">Audit log</h1>
       <p class="text-muted-foreground">All security events across the instance</p>
+      <p v-if="retention !== null" class="mt-1 text-sm text-muted-foreground">
+        {{ retentionLabel }}
+      </p>
     </div>
 
     <form class="flex flex-wrap items-end gap-3" @submit.prevent="applyFilters">

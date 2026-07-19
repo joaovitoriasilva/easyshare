@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import AdminUser, CurrentUser, DbSession
+from app.core.config import settings
 from app.models.models import AuditEvent, Package
 from app.schemas.schemas import AuditEventRead, AuditPage
 
@@ -29,6 +30,7 @@ def _page(db: Session, conditions: list[Any], limit: int, offset: int) -> AuditP
         total=total,
         limit=limit,
         offset=offset,
+        retention_days=settings.audit_retention_days,
     )
 
 

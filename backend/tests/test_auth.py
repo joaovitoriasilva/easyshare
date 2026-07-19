@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+
 from app.core.rate_limit import limiter
 from fastapi.testclient import TestClient
 
@@ -14,6 +16,95 @@ def test_auth_config_exposes_limits(client: TestClient) -> None:
     body = resp.json()
     assert body["allow_registration"] is True
     assert body["max_file_size"] > 0
+
+
+def test_me_usage_reports_quota_and_usage(client: TestClient) -> None:
+    headers = register_and_login(client)
+    # Fresh account: nothing stored yet, but the default quota is exposed.
+    resp = client.get("/api/auth/me/usage", headers=headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["storage_used"] == 0
+    assert body["storage_quota"] > 0
+
+    # Uploading a file is reflected in the reported usage.
+    pkg_id = client.post(
+        "/api/packages", json={"name": "P"}, headers=headers
+    ).json()["id"]
+    client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("a.txt", io.BytesIO(b"hello"), "text/plain")},
+        headers=headers,
+    )
+    body = client.get("/api/auth/me/usage", headers=headers).json()
+    assert body["storage_used"] == 5
+
+
+def test_me_usage_requires_auth(client: TestClient) -> None:
+    assert client.get("/api/auth/me/usage").status_code == 401
+
+
+def test_change_password_succeeds_with_correct_current(client: TestClient) -> None:
+    headers = register_and_login(client, "dave", "dave@example.com", "originalpass1")
+
+    resp = client.post(
+        "/api/auth/me/password",
+        json={"current_password": "originalpass1", "new_password": "brandnewpass2"},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+
+    # The old password stops working; the new one is accepted.
+    assert (
+        client.post(
+            "/api/auth/login",
+            data={"username": "dave", "password": "originalpass1"},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            "/api/auth/login",
+            data={"username": "dave", "password": "brandnewpass2"},
+        ).status_code
+        == 200
+    )
+
+
+def test_change_password_rejects_wrong_current(client: TestClient) -> None:
+    headers = register_and_login(client, "erin", "erin@example.com", "erinpass123")
+    resp = client.post(
+        "/api/auth/me/password",
+        json={"current_password": "wrongpass", "new_password": "newpass12345"},
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    # The password is unchanged: the original still logs in.
+    assert (
+        client.post(
+            "/api/auth/login",
+            data={"username": "erin", "password": "erinpass123"},
+        ).status_code
+        == 200
+    )
+
+
+def test_change_password_requires_auth(client: TestClient) -> None:
+    resp = client.post(
+        "/api/auth/me/password",
+        json={"current_password": "x", "new_password": "newpass12345"},
+    )
+    assert resp.status_code == 401
+
+
+def test_change_password_validates_new_length(client: TestClient) -> None:
+    headers = register_and_login(client, "fred", "fred@example.com", "fredpass123")
+    resp = client.post(
+        "/api/auth/me/password",
+        json={"current_password": "fredpass123", "new_password": "short"},
+        headers=headers,
+    )
+    assert resp.status_code == 422
 
 
 def test_register_and_login(client: TestClient) -> None:

@@ -105,4 +105,57 @@ describe("useUploads", () => {
     expect(items).toHaveLength(1);
     expect(items[0].status).toBe("error");
   });
+
+  it("cancels an in-flight upload, keeping it visible as canceled", async () => {
+    uploadFileMock.mockImplementation(
+      (
+        _id: number,
+        _file: File,
+        _onProgress?: (f: number) => void,
+        signal?: AbortSignal,
+      ) =>
+        new Promise<void>((_resolve, reject) => {
+          signal?.addEventListener("abort", () =>
+            reject(new ApiError(0, "Upload canceled")),
+          );
+        }),
+    );
+    const { startUploads, cancelUpload, uploadsFor, isUploading } = useUploads();
+    const done = startUploads(10, [makeFile("a.txt")], 1000);
+    const items = uploadsFor(10);
+    expect(items.value[0].status).toBe("uploading");
+
+    cancelUpload(10, 0);
+    await done;
+
+    expect(isUploading(10).value).toBe(false);
+    expect(items.value).toHaveLength(1);
+    expect(items.value[0].status).toBe("canceled");
+  });
+
+  it("retries a failed upload and clears the batch on success", async () => {
+    uploadFileMock.mockRejectedValueOnce(new ApiError(500, "boom"));
+    uploadFileMock.mockResolvedValueOnce(undefined);
+    const { startUploads, retryUpload, uploadsFor, isUploading } = useUploads();
+
+    await startUploads(11, [makeFile("a.txt")], 1000);
+    expect(uploadsFor(11).value[0].status).toBe("error");
+
+    const ok = await retryUpload(11, 0);
+
+    expect(ok).toBe(true);
+    expect(isUploading(11).value).toBe(false);
+    expect(uploadsFor(11).value).toEqual([]);
+  });
+
+  it("dismisses a failed upload row", async () => {
+    uploadFileMock.mockRejectedValue(new ApiError(500, "boom"));
+    const { startUploads, dismissUpload, uploadsFor } = useUploads();
+
+    await startUploads(12, [makeFile("a.txt")], 1000);
+    expect(uploadsFor(12).value).toHaveLength(1);
+
+    dismissUpload(12, 0);
+    expect(uploadsFor(12).value).toEqual([]);
+  });
 });

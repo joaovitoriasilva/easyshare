@@ -10,12 +10,14 @@ from sqlalchemy.engine import CursorResult
 
 from app.api.deps import AdminUser, DbSession
 from app.core.audit import record_event
+from app.core.security import hash_password
 from app.models.models import Package, PackageFile, User
 from app.schemas.schemas import (
     AdminUserRead,
     BulkQuotaResult,
     BulkQuotaUpdate,
     MessageResponse,
+    PasswordReset,
     UserAdminUpdate,
     UserPage,
 )
@@ -198,3 +200,33 @@ def delete_user(
         target=f"user:{user_id}",
     )
     return MessageResponse(detail="User deleted")
+
+
+@router.post("/{user_id}/password", response_model=MessageResponse)
+def reset_user_password(
+    user_id: int,
+    payload: PasswordReset,
+    db: DbSession,
+    admin: AdminUser,
+    request: Request,
+) -> MessageResponse:
+    """Set a new password for a user (administrators only).
+
+    Intended for account recovery. The new password is hashed with Argon2id and
+    is never logged or echoed back. For an immediate lockout of a compromised
+    account, deactivate it (the account's tokens then stop working at once).
+    """
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+    user.hashed_password = hash_password(payload.new_password)
+    db.commit()
+    record_event(
+        "admin.user.password_reset",
+        request=request,
+        actor=f"user:{admin.id}",
+        target=f"user:{user.id}",
+    )
+    return MessageResponse(detail="Password reset")

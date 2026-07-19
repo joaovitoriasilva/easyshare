@@ -16,7 +16,15 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import DbSession
-from app.api.routes import admin, audit, auth, packages, public, shares
+from app.api.routes import (
+    admin,
+    admin_settings,
+    audit,
+    auth,
+    packages,
+    public,
+    shares,
+)
 from app.core.config import settings
 from app.core.logging import configure_logging, get_request_id
 from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
@@ -115,6 +123,7 @@ app.include_router(shares.router, prefix=api_prefix)
 app.include_router(public.router, prefix=api_prefix)
 app.include_router(audit.router, prefix=api_prefix)
 app.include_router(admin.router, prefix=api_prefix)
+app.include_router(admin_settings.router, prefix=api_prefix)
 
 
 @app.get("/api/health", tags=["health"])

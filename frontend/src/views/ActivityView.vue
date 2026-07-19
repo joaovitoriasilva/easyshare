@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { auditApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { AuditEvent } from "@/api/types";
@@ -13,6 +13,16 @@ const total = ref(0);
 const offset = ref(0);
 const loading = ref(true);
 const limit = 50;
+const retention = ref<number | null>(null);
+
+const retentionLabel = computed(() => {
+  if (retention.value === null) {
+    return "";
+  }
+  return retention.value > 0
+    ? `Events older than ${retention.value} day${retention.value === 1 ? "" : "s"} are automatically deleted.`
+    : "Events are kept indefinitely.";
+});
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -20,6 +30,7 @@ async function load(): Promise<void> {
     const page = await auditApi.mine({ limit, offset: offset.value });
     events.value = page.items;
     total.value = page.total;
+    retention.value = page.retention_days;
   } catch (err) {
     toast.error(err instanceof ApiError ? err.message : "Failed to load activity");
   } finally {
@@ -50,6 +61,9 @@ onMounted(load);
       <h1 class="text-2xl font-bold">Share activity</h1>
       <p class="text-muted-foreground">
         Access and downloads of the packages you have shared
+      </p>
+      <p v-if="retention !== null" class="mt-1 text-sm text-muted-foreground">
+        {{ retentionLabel }}
       </p>
     </div>
 

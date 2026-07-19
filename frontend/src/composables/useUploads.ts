@@ -6,14 +6,28 @@ import { formatBytes } from "@/lib/format";
 
 /** A single file's progress within an in-flight upload batch. */
 export interface UploadItem {
+  id: number;
   name: string;
   progress: number;
-  status: "uploading" | "done" | "error";
+  status: "uploading" | "done" | "error" | "canceled";
 }
 
 interface PackageUpload {
   items: UploadItem[];
   active: boolean;
+}
+
+/**
+ * Non-reactive side-state for controlling a batch: the source files (needed to
+ * retry) and one `AbortController` per file (needed to cancel). Kept out of the
+ * reactive store so wrapping an `AbortController` in a Vue proxy can't break its
+ * native methods, and so holding a `File` reference never triggers renders.
+ */
+interface UploadControl {
+  files: File[];
+  controllers: (AbortController | null)[];
+  /** Indices cancelled while still queued, so the loop skips them when reached. */
+  canceled: Set<number>;
 }
 
 /**
@@ -23,8 +37,10 @@ interface PackageUpload {
  * here rather than inside the component.
  */
 const uploadsByPackage = reactive(new Map<number, PackageUpload>());
+const controlByPackage = new Map<number, UploadControl>();
 
 const EMPTY: UploadItem[] = [];
+let nextItemId = 0;
 
 export function useUploads() {
   const toast = useToasts();
@@ -37,6 +53,58 @@ export function useUploads() {
   /** Whether a package currently has an upload batch in progress. */
   function isUploading(packageId: number): ComputedRef<boolean> {
     return computed(() => uploadsByPackage.get(packageId)?.active ?? false);
+  }
+
+  /** Drop the batch once it is idle and every file finished successfully. */
+  function cleanup(packageId: number): void {
+    const entry = uploadsByPackage.get(packageId);
+    if (entry && !entry.active && entry.items.every((item) => item.status === "done")) {
+      uploadsByPackage.delete(packageId);
+      controlByPackage.delete(packageId);
+    }
+  }
+
+  /** Upload the file at `index`, updating its item's progress/status in place. */
+  async function uploadOne(packageId: number, index: number): Promise<boolean> {
+    const entry = uploadsByPackage.get(packageId);
+    const control = controlByPackage.get(packageId);
+    if (!entry || !control) {
+      return false;
+    }
+    const item = entry.items[index];
+    if (control.canceled.has(index)) {
+      item.status = "canceled";
+      return false;
+    }
+    const controller = new AbortController();
+    control.controllers[index] = controller;
+    item.status = "uploading";
+    item.progress = 0;
+    try {
+      await packagesApi.uploadFile(
+        packageId,
+        control.files[index],
+        (fraction) => {
+          item.progress = fraction;
+        },
+        controller.signal,
+      );
+      item.progress = 1;
+      item.status = "done";
+      return true;
+    } catch (err) {
+      if (controller.signal.aborted) {
+        item.status = "canceled";
+      } else {
+        item.status = "error";
+        toast.error(
+          `${item.name}: ${err instanceof ApiError ? err.message : "Upload failed"}`,
+        );
+      }
+      return false;
+    } finally {
+      control.controllers[index] = null;
+    }
   }
 
   /**
@@ -68,27 +136,26 @@ export function useUploads() {
     // Wrap in `reactive` before storing so mutations made through this
     // reference below flow through the proxy and stay reactive.
     const entry = reactive<PackageUpload>({
-      items: valid.map((file) => ({ name: file.name, progress: 0, status: "uploading" })),
+      items: valid.map((file) => ({
+        id: (nextItemId += 1),
+        name: file.name,
+        progress: 0,
+        status: "uploading",
+      })),
       active: true,
     });
     uploadsByPackage.set(packageId, entry);
+    controlByPackage.set(packageId, {
+      files: valid,
+      controllers: valid.map(() => null),
+      canceled: new Set<number>(),
+    });
 
     let uploaded = 0;
     try {
       for (let index = 0; index < valid.length; index += 1) {
-        const item = entry.items[index];
-        try {
-          await packagesApi.uploadFile(packageId, valid[index], (fraction) => {
-            item.progress = fraction;
-          });
-          item.progress = 1;
-          item.status = "done";
+        if (await uploadOne(packageId, index)) {
           uploaded += 1;
-        } catch (err) {
-          item.status = "error";
-          toast.error(
-            `${item.name}: ${err instanceof ApiError ? err.message : "Upload failed"}`,
-          );
         }
       }
       if (uploaded > 0) {
@@ -96,14 +163,87 @@ export function useUploads() {
       }
     } finally {
       entry.active = false;
-      // Drop the batch once everything succeeded; keep it (with the failed rows
-      // still visible) if anything failed so the user can see what went wrong.
-      if (entry.items.every((item) => item.status === "done")) {
-        uploadsByPackage.delete(packageId);
-      }
+      // Keep the batch (with the failed/cancelled rows still visible) if
+      // anything did not finish, so the user can retry or dismiss it.
+      cleanup(packageId);
     }
     return uploaded;
   }
 
-  return { uploadsFor, isUploading, startUploads };
+  /** Abort an in-flight or still-queued upload; it settles as "canceled". */
+  function cancelUpload(packageId: number, index: number): void {
+    const entry = uploadsByPackage.get(packageId);
+    const control = controlByPackage.get(packageId);
+    const item = entry?.items[index];
+    if (!control || !item || item.status !== "uploading") {
+      return;
+    }
+    const controller = control.controllers[index];
+    if (controller) {
+      controller.abort();
+    } else {
+      // Not started yet: mark it so the sequential loop skips it when reached.
+      control.canceled.add(index);
+      item.status = "canceled";
+    }
+  }
+
+  /**
+   * Retry a single failed or cancelled file. Resolves to whether it succeeded.
+   * Only valid once the batch is idle; retrying flips `active` so a remounted
+   * view still reacts to completion and the batch is cleaned up when all done.
+   */
+  async function retryUpload(packageId: number, index: number): Promise<boolean> {
+    const entry = uploadsByPackage.get(packageId);
+    const control = controlByPackage.get(packageId);
+    const item = entry?.items[index];
+    if (!entry || !control || !item || entry.active) {
+      return false;
+    }
+    if (item.status === "uploading" || item.status === "done") {
+      return false;
+    }
+    control.canceled.delete(index);
+    entry.active = true;
+    try {
+      const ok = await uploadOne(packageId, index);
+      if (ok) {
+        toast.success(`Uploaded ${item.name}`);
+      }
+      return ok;
+    } finally {
+      entry.active = false;
+      cleanup(packageId);
+    }
+  }
+
+  /** Remove a finished (failed/cancelled) row the user does not want to retry. */
+  function dismissUpload(packageId: number, index: number): void {
+    const entry = uploadsByPackage.get(packageId);
+    const control = controlByPackage.get(packageId);
+    const item = entry?.items[index];
+    if (!entry || !control || !item || entry.active || item.status === "uploading") {
+      return;
+    }
+    entry.items.splice(index, 1);
+    control.files.splice(index, 1);
+    control.controllers.splice(index, 1);
+    control.canceled.clear();
+    if (entry.items.length === 0) {
+      uploadsByPackage.delete(packageId);
+      controlByPackage.delete(packageId);
+    } else {
+      cleanup(packageId);
+    }
+  }
+
+  return {
+    uploadsFor,
+    isUploading,
+    startUploads,
+    cancelUpload,
+    retryUpload,
+    dismissUpload,
+  };
 }
+

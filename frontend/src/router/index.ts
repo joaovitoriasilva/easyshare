@@ -27,6 +27,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: "/profile",
+      name: "profile",
+      component: () => import("@/views/ProfileView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
       path: "/packages/:id",
       name: "package",
       component: () => import("@/views/PackageView.vue"),
@@ -48,6 +54,12 @@ const router = createRouter({
       path: "/admin/users",
       name: "admin-users",
       component: () => import("@/views/AdminUsersView.vue"),
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
+      path: "/admin/settings",
+      name: "admin-settings",
+      component: () => import("@/views/AdminSettingsView.vue"),
       meta: { requiresAuth: true, requiresAdmin: true },
     },
     {

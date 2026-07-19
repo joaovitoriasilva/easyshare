@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { adminApi, auditApi, packagesApi, publicApi } from "@/api";
+import { adminApi, auditApi, authApi, packagesApi, publicApi } from "@/api";
 import { ApiError, getToken, setToken, setUnauthorizedHandler } from "@/api/client";
 
 afterEach(() => {
@@ -156,6 +156,58 @@ describe("adminApi", () => {
     expect(init.method).toBe("PATCH");
     expect(JSON.parse(init.body)).toEqual({ storage_quota: 1048576 });
   });
+
+  it("fetches service settings with a GET", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ app_name: "EasyShare", database_backend: "sqlite" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await adminApi.settings();
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/admin/settings");
+    expect((init as RequestInit).method ?? "GET").toBe("GET");
+  });
+
+  it("resets a user's password with a POST", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ detail: "Password reset" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await adminApi.resetPassword(4, "newsecret123");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/admin/users/4/password");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ new_password: "newsecret123" });
+  });
+});
+
+describe("authApi.changePassword", () => {
+  const jsonResponse = (data: unknown): Response =>
+    new Response(JSON.stringify(data), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  it("posts the current and new password", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ detail: "Password updated" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await authApi.changePassword("oldpass123", "newpass456");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/auth/me/password");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({
+      current_password: "oldpass123",
+      new_password: "newpass456",
+    });
+  });
 });
 
 describe("packagesApi.update", () => {
@@ -285,6 +337,45 @@ describe("packagesApi.uploadFile", () => {
     );
 
     expect(fractions).toEqual([0.5, 1]);
+    vi.unstubAllGlobals();
+  });
+
+  it("aborts the upload when the signal fires", async () => {
+    class AbortableXhr {
+      status = 0;
+      statusText = "";
+      responseText = "";
+      upload = { addEventListener(): void {} };
+      private onAbort: (() => void) | null = null;
+      open(): void {}
+      setRequestHeader(): void {}
+      addEventListener(type: string, cb: () => void): void {
+        if (type === "abort") {
+          this.onAbort = cb;
+        }
+      }
+      send(): void {
+        /* stays pending until aborted */
+      }
+      abort(): void {
+        this.onAbort?.();
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", AbortableXhr);
+    const controller = new AbortController();
+
+    const promise = packagesApi.uploadFile(
+      7,
+      new File(["data"], "a.txt"),
+      undefined,
+      controller.signal,
+    );
+    controller.abort();
+
+    await expect(promise).rejects.toMatchObject({
+      status: 0,
+      message: "Upload canceled",
+    });
     vi.unstubAllGlobals();
   });
 });

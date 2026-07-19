@@ -8,7 +8,7 @@ import { useToasts } from "@/composables/useToasts";
 import { useConfirm } from "@/composables/useConfirm";
 import { isValidEmail } from "@/lib/validation";
 import { formatBytes } from "@/lib/format";
-import { Button, Input, Skeleton, Tooltip } from "@/components/ui";
+import { Button, Input, PasswordInput, Skeleton, Tooltip } from "@/components/ui";
 
 const auth = useAuthStore();
 const toast = useToasts();
@@ -25,6 +25,12 @@ const editUsername = ref("");
 const editEmail = ref("");
 const editQuotaMb = ref("");
 const bulkQuotaMb = ref("");
+
+const resetPwId = ref<number | null>(null);
+const resetPassword = ref("");
+const resetPasswordValid = computed(
+  () => resetPassword.value.length >= 8 && resetPassword.value.length <= 128,
+);
 
 const editEmailValid = computed(() => isValidEmail(editEmail.value));
 const showEditEmailError = computed(
@@ -115,6 +121,7 @@ async function deleteUser(user: AdminUser): Promise<void> {
 
 function startEdit(user: AdminUser): void {
   editingId.value = user.id;
+  resetPwId.value = null;
   editUsername.value = user.username;
   editEmail.value = user.email;
   editQuotaMb.value = String(Math.round(user.storage_quota / (1024 * 1024)));
@@ -122,6 +129,30 @@ function startEdit(user: AdminUser): void {
 
 function cancelEdit(): void {
   editingId.value = null;
+}
+
+function startReset(user: AdminUser): void {
+  editingId.value = null;
+  resetPwId.value = user.id;
+  resetPassword.value = "";
+}
+
+function cancelReset(): void {
+  resetPwId.value = null;
+  resetPassword.value = "";
+}
+
+async function submitReset(user: AdminUser): Promise<void> {
+  if (!resetPasswordValid.value) {
+    return;
+  }
+  try {
+    await adminApi.resetPassword(user.id, resetPassword.value);
+    toast.success(`Password reset for ${user.username}`);
+    cancelReset();
+  } catch (err) {
+    toast.error(err instanceof ApiError ? err.message : "Failed to reset password");
+  }
 }
 
 async function saveEdit(user: AdminUser): Promise<void> {
@@ -217,93 +248,133 @@ onMounted(load);
             </tr>
           </thead>
           <tbody>
-            <tr v-for="user in users" :key="user.id" class="border-t">
-              <td class="p-3">
-                <Input
-                  v-if="editingId === user.id"
-                  v-model="editUsername"
-                  class="h-8"
-                />
-                <span v-else>
-                  {{ user.username }}
-                  <span v-if="isSelf(user)" class="ml-1 text-xs text-muted-foreground">
-                    (you)
-                  </span>
-                </span>
-              </td>
-              <td class="p-3">
-                <Tooltip
-                  v-if="editingId === user.id"
-                  content="Enter a valid email address"
-                  :open="showEditEmailError"
-                >
-                  <Input v-model="editEmail" type="email" class="h-8" />
-                </Tooltip>
-                <span v-else class="text-muted-foreground">{{ user.email }}</span>
-              </td>
-              <td class="p-3">
-                <span :class="user.is_admin ? 'font-medium text-primary' : 'text-muted-foreground'">
-                  {{ user.is_admin ? "Admin" : "User" }}
-                </span>
-              </td>
-              <td class="p-3">
-                <span :class="user.is_active ? 'text-muted-foreground' : 'text-destructive'">
-                  {{ user.is_active ? "Active" : "Inactive" }}
-                </span>
-              </td>
-              <td class="p-3">
-                <div v-if="editingId === user.id" class="flex items-center gap-1">
+            <template v-for="user in users" :key="user.id">
+              <tr class="border-t">
+                <td class="p-3">
                   <Input
-                    v-model="editQuotaMb"
-                    type="number"
-                    min="0"
-                    class="h-8 w-20"
-                    title="Storage quota in MB. 0 = unlimited."
+                    v-if="editingId === user.id"
+                    v-model="editUsername"
+                    class="h-8"
                   />
-                  <span class="text-xs text-muted-foreground">MB</span>
-                </div>
-                <span v-else class="whitespace-nowrap text-muted-foreground">
-                  {{ formatBytes(user.storage_used) }} / {{ quotaLabel(user) }}
-                </span>
-              </td>
-              <td class="p-3">
-                <div class="flex justify-end gap-2">
-                  <template v-if="editingId === user.id">
-                    <Button size="sm" :disabled="!editEmailValid || !editQuotaValid" @click="saveEdit(user)">Save</Button>
-                    <Button variant="ghost" size="sm" @click="cancelEdit">Cancel</Button>
-                  </template>
-                  <template v-else>
-                    <Button variant="outline" size="sm" @click="startEdit(user)">
-                      Edit
+                  <span v-else>
+                    {{ user.username }}
+                    <span v-if="isSelf(user)" class="ml-1 text-xs text-muted-foreground">
+                      (you)
+                    </span>
+                  </span>
+                </td>
+                <td class="p-3">
+                  <Tooltip
+                    v-if="editingId === user.id"
+                    content="Enter a valid email address"
+                    :open="showEditEmailError"
+                  >
+                    <Input v-model="editEmail" type="email" class="h-8" />
+                  </Tooltip>
+                  <span v-else class="text-muted-foreground">{{ user.email }}</span>
+                </td>
+                <td class="p-3">
+                  <span :class="user.is_admin ? 'font-medium text-primary' : 'text-muted-foreground'">
+                    {{ user.is_admin ? "Admin" : "User" }}
+                  </span>
+                </td>
+                <td class="p-3">
+                  <span :class="user.is_active ? 'text-muted-foreground' : 'text-destructive'">
+                    {{ user.is_active ? "Active" : "Inactive" }}
+                  </span>
+                </td>
+                <td class="p-3">
+                  <div v-if="editingId === user.id" class="flex items-center gap-1">
+                    <Input
+                      v-model="editQuotaMb"
+                      type="number"
+                      min="0"
+                      class="h-8 w-20"
+                      title="Storage quota in MB. 0 = unlimited."
+                    />
+                    <span class="text-xs text-muted-foreground">MB</span>
+                  </div>
+                  <span v-else class="whitespace-nowrap text-muted-foreground">
+                    {{ formatBytes(user.storage_used) }} / {{ quotaLabel(user) }}
+                  </span>
+                </td>
+                <td class="p-3">
+                  <div class="flex justify-end gap-2">
+                    <template v-if="editingId === user.id">
+                      <Button size="sm" :disabled="!editEmailValid || !editQuotaValid" @click="saveEdit(user)">Save</Button>
+                      <Button variant="ghost" size="sm" @click="cancelEdit">Cancel</Button>
+                    </template>
+                    <template v-else>
+                      <Button variant="outline" size="sm" @click="startEdit(user)">
+                        Edit
+                      </Button>
+                      <Button variant="outline" size="sm" @click="startReset(user)">
+                        Reset password
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        :disabled="isSelf(user)"
+                        @click="toggleAdmin(user)"
+                      >
+                        {{ user.is_admin ? "Revoke admin" : "Make admin" }}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        :disabled="isSelf(user)"
+                        @click="toggleActive(user)"
+                      >
+                        {{ user.is_active ? "Deactivate" : "Activate" }}
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        :disabled="isSelf(user)"
+                        @click="deleteUser(user)"
+                      >
+                        Delete
+                      </Button>
+                    </template>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="resetPwId === user.id" class="border-t bg-muted/30">
+                <td colspan="6" class="p-3">
+                  <form
+                    class="flex flex-wrap items-end gap-2"
+                    @submit.prevent="submitReset(user)"
+                  >
+                    <div class="space-y-1">
+                      <label
+                        :for="`reset-pw-${user.id}`"
+                        class="block text-xs text-muted-foreground"
+                      >
+                        New password for {{ user.username }}
+                      </label>
+                      <PasswordInput
+                        :id="`reset-pw-${user.id}`"
+                        v-model="resetPassword"
+                        placeholder="New password"
+                        class="w-56"
+                      />
+                    </div>
+                    <Button type="submit" size="sm" :disabled="!resetPasswordValid">
+                      Set password
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      :disabled="isSelf(user)"
-                      @click="toggleAdmin(user)"
+                    <Button type="button" variant="ghost" size="sm" @click="cancelReset">
+                      Cancel
+                    </Button>
+                    <span
+                      v-if="resetPassword.length > 0 && !resetPasswordValid"
+                      class="text-xs text-destructive"
                     >
-                      {{ user.is_admin ? "Revoke admin" : "Make admin" }}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      :disabled="isSelf(user)"
-                      @click="toggleActive(user)"
-                    >
-                      {{ user.is_active ? "Deactivate" : "Activate" }}
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      :disabled="isSelf(user)"
-                      @click="deleteUser(user)"
-                    >
-                      Delete
-                    </Button>
-                  </template>
-                </div>
-              </td>
-            </tr>
+                      At least 8 characters.
+                    </span>
+                  </form>
+                </td>
+              </tr>
+            </template>
             <tr v-if="users.length === 0">
               <td colspan="6" class="p-4 text-center text-muted-foreground">
                 No users.

@@ -140,6 +140,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 export interface UploadOptions {
   /** Called with the upload fraction (0..1) as the file streams to the server. */
   onProgress?: (fraction: number) => void;
+  /** Aborts the in-flight upload when signalled; it rejects as "Upload canceled". */
+  signal?: AbortSignal;
 }
 
 /**
@@ -201,6 +203,16 @@ function upload<T>(path: string, file: File, options: UploadOptions = {}): Promi
     xhr.addEventListener("error", () =>
       reject(new ApiError(0, "Network error. Please check your connection.")),
     );
+
+    xhr.addEventListener("abort", () => reject(new ApiError(0, "Upload canceled")));
+
+    if (options.signal) {
+      if (options.signal.aborted) {
+        reject(new ApiError(0, "Upload canceled"));
+        return;
+      }
+      options.signal.addEventListener("abort", () => xhr.abort(), { once: true });
+    }
 
     const form = new FormData();
     form.append("file", file);
