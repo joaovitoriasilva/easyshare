@@ -32,11 +32,18 @@ const passwordError = ref<string | null>(null);
 const newPasswordValid = computed(
   () => newPassword.value.length >= 8 && newPassword.value.length <= 128,
 );
+const newPasswordInvalid = computed(
+  () => newPassword.value.length > 0 && !newPasswordValid.value,
+);
+const passwordsMatch = computed(() => newPassword.value === confirmPassword.value);
+const showPasswordMismatch = computed(
+  () => confirmPassword.value.length > 0 && !passwordsMatch.value,
+);
 const canSubmitPassword = computed(
   () =>
     currentPassword.value.length > 0 &&
     newPasswordValid.value &&
-    newPassword.value === confirmPassword.value,
+    passwordsMatch.value,
 );
 
 const memberSince = computed(() => {
@@ -193,7 +200,16 @@ onMounted(loadUsage);
               v-model="newPassword"
               placeholder="New password"
             />
-            <p class="text-xs text-muted-foreground">At least 8 characters.</p>
+            <p
+              class="text-xs"
+              :class="newPasswordInvalid ? 'text-destructive' : 'text-muted-foreground'"
+            >
+              {{
+                newPasswordInvalid
+                  ? "Password must be between 8 and 128 characters."
+                  : "At least 8 characters."
+              }}
+            </p>
           </div>
           <div class="space-y-2">
             <Label for="confirm-password">Confirm new password</Label>
@@ -202,6 +218,9 @@ onMounted(loadUsage);
               v-model="confirmPassword"
               placeholder="Confirm new password"
             />
+            <p v-if="showPasswordMismatch" class="text-xs text-destructive">
+              Passwords do not match.
+            </p>
           </div>
           <Alert v-if="passwordError" kind="error">{{ passwordError }}</Alert>
           <Button type="submit" :disabled="!canSubmitPassword || savingPassword">

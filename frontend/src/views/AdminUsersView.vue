@@ -28,8 +28,21 @@ const bulkQuotaMb = ref("");
 
 const resetPwId = ref<number | null>(null);
 const resetPassword = ref("");
+const resetConfirmPassword = ref("");
 const resetPasswordValid = computed(
   () => resetPassword.value.length >= 8 && resetPassword.value.length <= 128,
+);
+const resetPasswordInvalid = computed(
+  () => resetPassword.value.length > 0 && !resetPasswordValid.value,
+);
+const resetPasswordsMatch = computed(
+  () => resetPassword.value === resetConfirmPassword.value,
+);
+const showResetMismatch = computed(
+  () => resetConfirmPassword.value.length > 0 && !resetPasswordsMatch.value,
+);
+const canSubmitReset = computed(
+  () => resetPasswordValid.value && resetPasswordsMatch.value,
 );
 
 const editEmailValid = computed(() => isValidEmail(editEmail.value));
@@ -135,15 +148,17 @@ function startReset(user: AdminUser): void {
   editingId.value = null;
   resetPwId.value = user.id;
   resetPassword.value = "";
+  resetConfirmPassword.value = "";
 }
 
 function cancelReset(): void {
   resetPwId.value = null;
   resetPassword.value = "";
+  resetConfirmPassword.value = "";
 }
 
 async function submitReset(user: AdminUser): Promise<void> {
-  if (!resetPasswordValid.value) {
+  if (!canSubmitReset.value) {
     return;
   }
   try {
@@ -341,36 +356,58 @@ onMounted(load);
               </tr>
               <tr v-if="resetPwId === user.id" class="border-t bg-muted/30">
                 <td colspan="6" class="p-3">
-                  <form
-                    class="flex flex-wrap items-end gap-2"
-                    @submit.prevent="submitReset(user)"
-                  >
-                    <div class="space-y-1">
-                      <label
-                        :for="`reset-pw-${user.id}`"
-                        class="block text-xs text-muted-foreground"
-                      >
-                        New password for {{ user.username }}
-                      </label>
-                      <PasswordInput
-                        :id="`reset-pw-${user.id}`"
-                        v-model="resetPassword"
-                        placeholder="New password"
-                        class="w-56"
-                      />
+                  <form class="space-y-3" @submit.prevent="submitReset(user)">
+                    <div class="flex flex-wrap items-start gap-3">
+                      <div class="space-y-1">
+                        <label
+                          :for="`reset-pw-${user.id}`"
+                          class="block text-xs text-muted-foreground"
+                        >
+                          New password for {{ user.username }}
+                        </label>
+                        <PasswordInput
+                          :id="`reset-pw-${user.id}`"
+                          v-model="resetPassword"
+                          placeholder="New password"
+                          class="w-56"
+                        />
+                        <p
+                          class="text-xs"
+                          :class="resetPasswordInvalid ? 'text-destructive' : 'text-muted-foreground'"
+                        >
+                          {{
+                            resetPasswordInvalid
+                              ? "Password must be between 8 and 128 characters."
+                              : "At least 8 characters."
+                          }}
+                        </p>
+                      </div>
+                      <div class="space-y-1">
+                        <label
+                          :for="`reset-pw-confirm-${user.id}`"
+                          class="block text-xs text-muted-foreground"
+                        >
+                          Confirm password
+                        </label>
+                        <PasswordInput
+                          :id="`reset-pw-confirm-${user.id}`"
+                          v-model="resetConfirmPassword"
+                          placeholder="Confirm password"
+                          class="w-56"
+                        />
+                        <p v-if="showResetMismatch" class="text-xs text-destructive">
+                          Passwords do not match.
+                        </p>
+                      </div>
                     </div>
-                    <Button type="submit" size="sm" :disabled="!resetPasswordValid">
-                      Set password
-                    </Button>
-                    <Button type="button" variant="ghost" size="sm" @click="cancelReset">
-                      Cancel
-                    </Button>
-                    <span
-                      v-if="resetPassword.length > 0 && !resetPasswordValid"
-                      class="text-xs text-destructive"
-                    >
-                      At least 8 characters.
-                    </span>
+                    <div class="flex gap-2">
+                      <Button type="submit" size="sm" :disabled="!canSubmitReset">
+                        Set password
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" @click="cancelReset">
+                        Cancel
+                      </Button>
+                    </div>
                   </form>
                 </td>
               </tr>
