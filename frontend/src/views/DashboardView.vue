@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { RouterLink } from "vue-router";
+import { RouterLink, useRouter } from "vue-router";
 import { FileArchive, Plus, Search, Share2 } from "lucide-vue-next";
 import { authApi, packagesApi } from "@/api";
 import { ApiError } from "@/api/client";
@@ -21,6 +21,7 @@ import {
 } from "@/components/ui";
 
 const toast = useToasts();
+const router = useRouter();
 
 const packages = ref<Package[]>([]);
 const total = ref(0);
@@ -109,12 +110,8 @@ async function create(): Promise<void> {
   creating.value = true;
   try {
     const created = await packagesApi.create(name.value.trim(), description.value || null);
-    name.value = "";
-    description.value = "";
-    showForm.value = false;
     toast.success(`Created "${created.name}"`);
-    offset.value = 0;
-    await load();
+    await router.push({ name: "package", params: { id: created.id } });
   } catch (err) {
     toast.error(err instanceof ApiError ? err.message : "Failed to create package");
   } finally {
