@@ -7,6 +7,7 @@ import time
 from uuid import uuid4
 
 from starlette.datastructures import Headers
+from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.logging import reset_request_id, set_request_id
@@ -28,6 +29,41 @@ _SECURITY_HEADERS: list[tuple[bytes, bytes]] = [
         b"object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
     ),
 ]
+
+
+class MaxBodySizeMiddleware:
+    """Reject an over-sized request body before it is read or spooled to disk.
+
+    Starlette spools the whole multipart body to a temporary file before a route
+    (or its dependencies) runs, so an upload far larger than the per-file limit
+    would otherwise touch disk before it could be refused. Rejecting up front on
+    the declared ``Content-Length`` avoids that. Requests without a
+    ``Content-Length`` (e.g. chunked transfer encoding) fall through to the
+    per-file streaming cap enforced while the upload is written.
+    """
+
+    def __init__(self, app: ASGIApp, max_body_size: int) -> None:
+        self.app = app
+        self.max_body_size = max_body_size
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        content_length = Headers(scope=scope).get("content-length")
+        if content_length is not None:
+            try:
+                declared = int(content_length)
+            except ValueError:
+                declared = -1
+            if declared > self.max_body_size:
+                response = JSONResponse(
+                    {"detail": "Request body too large"},
+                    status_code=413,
+                )
+                await response(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 
 class SecurityHeadersMiddleware:

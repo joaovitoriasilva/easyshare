@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, status
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 
@@ -286,7 +286,7 @@ def download_all_files(
     package: DownloadablePackage,
     request: Request,
     file_ids: list[int] | None = Query(default=None),
-) -> FileResponse:
+) -> StreamingResponse:
     """Download a package as a zip archive.
 
     Owners may pass ``file_ids`` repeatedly to archive a specific subset;

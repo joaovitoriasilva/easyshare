@@ -47,6 +47,45 @@ describe("useUploads", () => {
     expect(items.value).toEqual([]);
   });
 
+  it("runs at most UPLOAD_CONCURRENCY uploads at once", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const pending: Array<() => void> = [];
+    uploadFileMock.mockImplementation(() => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      return new Promise<void>((resolve) => {
+        pending.push(() => {
+          inFlight -= 1;
+          resolve();
+        });
+      });
+    });
+
+    const { startUploads, uploadsFor } = useUploads();
+    const files = ["a", "b", "c", "d", "e"].map((n) => makeFile(n));
+    const done = startUploads(20, files, 1000);
+
+    // The pool saturates synchronously; only three uploads run concurrently.
+    await Promise.resolve();
+    expect(peak).toBe(3);
+    expect(inFlight).toBe(3);
+
+    // Resolve uploads one at a time; each completion frees a slot for the next.
+    let guard = 0;
+    while (pending.length > 0 && guard < 100) {
+      pending.shift()?.();
+      await Promise.resolve();
+      await Promise.resolve();
+      guard += 1;
+    }
+    await done;
+
+    expect(peak).toBe(3);
+    expect(uploadFileMock).toHaveBeenCalledTimes(5);
+    expect(uploadsFor(20).value).toEqual([]);
+  });
+
   it("exposes in-flight progress to any caller, surviving a remount", async () => {
     let resolveUpload: () => void = () => {};
     let report: ((fraction: number) => void) | undefined;

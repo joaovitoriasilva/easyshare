@@ -79,12 +79,12 @@ class Settings(BaseSettings):
     # ``storage_quota_total`` caps the whole instance's on-disk usage (0 =
     # unlimited by default). ``storage_quota_per_user`` is the budget assigned
     # to each user's ``storage_quota`` when their account is created; it
-    # defaults to 10 GiB so that open registration cannot fill the disk without
+    # defaults to 1 GiB so that open registration cannot fill the disk without
     # bound. Set it to 0 for unlimited. Existing users keep the value
     # snapshotted at creation (backfilled by migration); administrators can
     # change it per user afterwards.
     storage_quota_total: int = Field(default=0, ge=0)
-    storage_quota_per_user: int = Field(default=10 * 1024 * 1024 * 1024, ge=0)
+    storage_quota_per_user: int = Field(default=1 * 1024 * 1024 * 1024, ge=0)
     # When enabled (default) stored files are given opaque random names on disk
     # so the filesystem reveals nothing about their origin or contents. Disable
     # to store files under a readable ``{package_id}/{file_id}_{filename}`` path,
@@ -206,6 +206,17 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment.lower() == "production"
+
+    @property
+    def max_request_body_size(self) -> int:
+        """Hard cap on any request body, checked before the body is read.
+
+        Sized as the per-file upload limit plus headroom for multipart framing
+        so a single max-size upload is always accepted, while a grossly
+        oversized request is rejected with 413 up front instead of being
+        spooled to disk first (see ``MaxBodySizeMiddleware``).
+        """
+        return self.max_file_size + 1024 * 1024
 
     @property
     def email_verification_enabled(self) -> bool:

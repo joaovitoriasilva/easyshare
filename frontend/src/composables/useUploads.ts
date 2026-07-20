@@ -42,6 +42,11 @@ const controlByPackage = new Map<number, UploadControl>();
 const EMPTY: UploadItem[] = [];
 let nextItemId = 0;
 
+// How many files upload at once within a batch. A small pool speeds up
+// multi-file uploads while keeping per-file progress readable and staying under
+// the browser's per-host connection limit.
+const UPLOAD_CONCURRENCY = 3;
+
 export function useUploads() {
   const toast = useToasts();
 
@@ -108,10 +113,10 @@ export function useUploads() {
   }
 
   /**
-   * Upload `files` into a package sequentially, reporting per-file progress.
-   * Files larger than `maxSize` are rejected up front with a toast. Resolves to
-   * the number of files uploaded. Safe to fire and forget: the loop keeps
-   * running (and its progress stays visible) even if the caller unmounts.
+   * Upload `files` into a package with bounded concurrency, reporting per-file
+   * progress. Files larger than `maxSize` are rejected up front with a toast.
+   * Resolves to the number of files uploaded. Safe to fire and forget: the pool
+   * keeps running (and its progress stays visible) even if the caller unmounts.
    */
   async function startUploads(
     packageId: number,
@@ -152,12 +157,24 @@ export function useUploads() {
     });
 
     let uploaded = 0;
-    try {
-      for (let index = 0; index < valid.length; index += 1) {
+    let nextIndex = 0;
+    // Bounded worker pool: each worker pulls the next queued file until the
+    // batch is drained, so up to UPLOAD_CONCURRENCY uploads run at once while
+    // per-file progress, cancel and retry keep operating on stable indices.
+    async function worker(): Promise<void> {
+      let index = nextIndex;
+      nextIndex += 1;
+      while (index < valid.length) {
         if (await uploadOne(packageId, index)) {
           uploaded += 1;
         }
+        index = nextIndex;
+        nextIndex += 1;
       }
+    }
+    try {
+      const workerCount = Math.min(UPLOAD_CONCURRENCY, valid.length);
+      await Promise.all(Array.from({ length: workerCount }, () => worker()));
       if (uploaded > 0) {
         toast.success(`Uploaded ${uploaded} file${uploaded === 1 ? "" : "s"}`);
       }

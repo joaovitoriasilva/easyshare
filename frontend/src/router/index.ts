@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
+import { useNavigationProgress } from "@/composables/useNavigationProgress";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -75,6 +76,15 @@ const router = createRouter({
   ],
 });
 
+const progress = useNavigationProgress();
+
+// Start the top-of-page bar as soon as a navigation begins (registered before
+// the auth guard so it shows even while `auth.init()` is awaited), and finish
+// it when the navigation resolves or errors.
+router.beforeEach(() => {
+  progress.start();
+});
+
 router.beforeEach(async (to) => {
   const auth = useAuthStore();
   await auth.init();
@@ -92,6 +102,14 @@ router.beforeEach(async (to) => {
     return { name: "dashboard" };
   }
   return true;
+});
+
+router.afterEach(() => {
+  progress.done();
+});
+
+router.onError(() => {
+  progress.done();
 });
 
 export default router;

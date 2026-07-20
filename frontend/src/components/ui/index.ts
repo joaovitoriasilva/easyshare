@@ -14,3 +14,5 @@ export { default as Skeleton } from "./Skeleton.vue";
 export { default as Toaster } from "./Toaster.vue";
 export { default as ConfirmDialog } from "./ConfirmDialog.vue";
 export { default as Tooltip } from "./Tooltip.vue";
+export { default as QrCode } from "./QrCode.vue";
+export { default as NavigationProgress } from "./NavigationProgress.vue";

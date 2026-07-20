@@ -5,8 +5,15 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
-from fastapi.responses import FileResponse, Response
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select, update
 
 from app.api.deps import DbSession
@@ -43,16 +50,20 @@ def _get_active_share(db: DbSession, token: str) -> Share:
     return share
 
 
+def _as_utc(value: datetime) -> datetime:
+    """Interpret a possibly-naive stored datetime as UTC.
+
+    SQLite returns naive datetimes; treating a stored value as UTC keeps
+    comparisons against an aware ``now`` from raising.
+    """
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
 def _is_expired(share: Share) -> bool:
     """Return whether a share has passed its optional expiry time."""
     if share.expires_at is None:
         return False
-    expires = share.expires_at
-    # SQLite returns naive datetimes; treat a stored value as UTC so the
-    # comparison against an aware "now" never raises.
-    if expires.tzinfo is None:
-        expires = expires.replace(tzinfo=UTC)
-    return expires <= datetime.now(UTC)
+    return _as_utc(share.expires_at) <= datetime.now(UTC)
 
 
 def _email_allowed(share: Share, email: str) -> bool:
@@ -165,12 +176,16 @@ def _email_verification_required(share: Share) -> bool:
     )
 
 
-def _issue_verification_code(db: DbSession, share: Share, email: str) -> None:
+def _issue_verification_code(
+    db: DbSession, share: Share, email: str, background_tasks: BackgroundTasks
+) -> None:
     """Generate, persist (replacing any prior) and email a one-time code.
 
-    The code is committed before the (potentially slow) email send so a delivery
-    failure never loses it; the plaintext is emailed but only its keyed hash is
-    stored.
+    The code is committed before the email is scheduled so a delivery failure
+    never loses it; the send itself is handed to a background task so the
+    (possibly slow) SMTP round-trip runs after the response is returned rather
+    than holding a worker thread while the client waits. The plaintext is
+    emailed but only its keyed hash is stored.
     """
     normalized = email.strip().lower()
     code = generate_verification_code()
@@ -200,7 +215,11 @@ def _issue_verification_code(db: DbSession, share: Share, email: str) -> None:
             )
         )
     db.commit()
-    send_share_verification_code(normalized, code, package_name=package_name)
+    # Deliver the code after the response is sent so the (possibly slow) SMTP
+    # round-trip never occupies a worker thread while the client waits.
+    background_tasks.add_task(
+        send_share_verification_code, normalized, code, package_name=package_name
+    )
 
 
 def _consume_verification_code(
@@ -220,10 +239,7 @@ def _consume_verification_code(
     )
     if record is None:
         return False
-    expires = record.expires_at
-    if expires.tzinfo is None:
-        expires = expires.replace(tzinfo=UTC)
-    if expires <= datetime.now(UTC) or (
+    if _as_utc(record.expires_at) <= datetime.now(UTC) or (
         record.attempts >= settings.share_verification_max_attempts
     ):
         db.delete(record)
@@ -241,7 +257,11 @@ def _consume_verification_code(
 @router.post("/{token}/access", response_model=PublicShareRead)
 @limiter.limit(SENSITIVE)
 def access_share(
-    request: Request, token: str, payload: ShareAccessRequest, db: DbSession
+    request: Request,
+    token: str,
+    payload: ShareAccessRequest,
+    background_tasks: BackgroundTasks,
+    db: DbSession,
 ) -> PublicShareRead:
     """Unlock a restricted share by providing an allowed email address.
 
@@ -258,7 +278,7 @@ def access_share(
 
     if _email_verification_required(share):
         if _email_allowed(share, email):
-            _issue_verification_code(db, share, email)
+            _issue_verification_code(db, share, email, background_tasks)
             record_event(
                 "share.access.code_sent",
                 request=request,
@@ -386,6 +406,21 @@ def _authorize_download_or_deny(
         raise
 
 
+def _increment_download_counts(db: DbSession, file_ids: list[int]) -> None:
+    """Bump the denormalised download counter for ``file_ids`` and commit.
+
+    Shared by the single-file and archive download routes. The commit expires
+    the ORM instances, so callers capture any attributes they still need
+    (filenames, storage keys) before calling.
+    """
+    db.execute(
+        update(PackageFile)
+        .where(PackageFile.id.in_(file_ids))
+        .values(download_count=PackageFile.download_count + 1)
+    )
+    db.commit()
+
+
 @router.get("/{token}/files/{file_id}/download")
 @limiter.limit(DOWNLOAD)
 def download_shared_file(
@@ -406,12 +441,7 @@ def download_shared_file(
     storage_key = record.storage_key
     content_type = record.content_type
     package_id = share.package_id
-    db.execute(
-        update(PackageFile)
-        .where(PackageFile.id == record.id)
-        .values(download_count=PackageFile.download_count + 1)
-    )
-    db.commit()
+    _increment_download_counts(db, [record.id])
     record_event(
         "share.download",
         request=request,
@@ -433,7 +463,7 @@ def download_shared_archive(
     request: Request,
     access: str | None = Query(default=None),
     file_ids: list[int] | None = Query(default=None),
-) -> FileResponse:
+) -> StreamingResponse:
     """Download all files, or a selected subset, as a zip archive.
 
     Recipients may pass ``file_ids`` repeatedly to select specific files;
@@ -458,12 +488,7 @@ def download_shared_archive(
     selected_ids = [file.id for file in selected]
     package_id = share.package_id
     response = build_archive_download(selected, package_name=share.package.name)
-    db.execute(
-        update(PackageFile)
-        .where(PackageFile.id.in_(selected_ids))
-        .values(download_count=PackageFile.download_count + 1)
-    )
-    db.commit()
+    _increment_download_counts(db, selected_ids)
     record_event(
         "share.download",
         request=request,

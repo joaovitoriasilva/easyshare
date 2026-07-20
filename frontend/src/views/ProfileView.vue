@@ -168,6 +168,11 @@ onMounted(loadUsage);
         <div
           v-if="usage.storage_quota > 0"
           class="h-2 overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          :aria-valuenow="usagePercent"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-label="Storage used"
         >
           <div
             class="h-full rounded-full transition-all"

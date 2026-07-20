@@ -3,7 +3,7 @@ import { ref, watch, computed } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { Package2, LogOut, Menu, X } from "lucide-vue-next";
 import { useAuthStore } from "@/stores/auth";
-import { Button, Toaster, ConfirmDialog } from "@/components/ui";
+import { Button, Toaster, ConfirmDialog, NavigationProgress } from "@/components/ui";
 import ThemeToggle from "@/components/ThemeToggle.vue";
 
 const auth = useAuthStore();
@@ -32,6 +32,13 @@ function logout(): void {
 
 <template>
   <div class="flex min-h-screen flex-col bg-background">
+    <NavigationProgress />
+    <a
+      href="#main-content"
+      class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-3 focus:z-[300] focus:rounded-md focus:bg-background focus:px-3 focus:py-2 focus:text-sm focus:shadow focus:ring-2 focus:ring-ring"
+    >
+      Skip to main content
+    </a>
     <header class="border-b bg-header">
       <div class="container flex h-16 items-center justify-between">
         <RouterLink
@@ -44,7 +51,7 @@ function logout(): void {
         </RouterLink>
 
         <!-- Desktop navigation -->
-        <nav class="hidden items-center gap-3 md:flex">
+        <nav aria-label="Main" class="hidden items-center gap-3 md:flex">
           <RouterLink
             v-if="auth.user"
             :to="{ name: 'activity' }"
@@ -96,6 +103,7 @@ function logout(): void {
             size="icon"
             :aria-label="mobileOpen ? 'Close menu' : 'Open menu'"
             :aria-expanded="mobileOpen"
+            aria-controls="mobile-nav"
             @click="mobileOpen = !mobileOpen"
           >
             <X v-if="mobileOpen" class="h-5 w-5" />
@@ -105,7 +113,7 @@ function logout(): void {
       </div>
 
       <!-- Mobile navigation panel -->
-      <nav v-if="auth.user && mobileOpen" class="border-t md:hidden">
+      <nav v-if="auth.user && mobileOpen" id="mobile-nav" aria-label="Mobile" class="border-t md:hidden">
         <div class="container flex flex-col gap-1 py-3">
           <RouterLink
             :to="{ name: 'activity' }"
@@ -149,7 +157,7 @@ function logout(): void {
         </div>
       </nav>
     </header>
-    <main class="container flex-1 py-8">
+    <main id="main-content" tabindex="-1" class="container flex-1 py-8 outline-none">
       <RouterView />
     </main>
     <footer class="border-t bg-header">

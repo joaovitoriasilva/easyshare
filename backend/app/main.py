@@ -27,7 +27,11 @@ from app.api.routes import (
 )
 from app.core.config import settings
 from app.core.logging import configure_logging, get_request_id
-from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
+from app.core.middleware import (
+    MaxBodySizeMiddleware,
+    RequestContextMiddleware,
+    SecurityHeadersMiddleware,
+)
 from app.core.rate_limit import limiter, rate_limit_exceeded_handler
 from app.core.static import router as frontend_router
 from app.core.tasks import audit_retention_loop
@@ -103,6 +107,13 @@ def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
 # and one access-log line — while CORS stays outside SlowAPI so 429 responses
 # still carry CORS headers. SecurityHeaders is registered first (innermost) so
 # it still stamps the SPA/static responses served by frontend_router below.
+# MaxBodySize is registered before all of them so it ends up innermost of the
+# user middleware: it turns away an over-sized upload just before routing (and
+# thus before the endpoint reads/spools the multipart body), while its 413 still
+# flows back out through the request-id and security-header middleware.
+app.add_middleware(
+    MaxBodySizeMiddleware, max_body_size=settings.max_request_body_size
+)
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(
     CORSMiddleware,

@@ -25,6 +25,7 @@ import {
   Checkbox,
   Input,
   Label,
+  QrCode,
   Skeleton,
   Tooltip,
 } from "@/components/ui";
@@ -606,7 +607,14 @@ onMounted(load);
                     {{ uploadStatusLabel(item) }}
                   </span>
                 </div>
-                <div class="h-1.5 overflow-hidden rounded-full bg-muted">
+                <div
+                  class="h-1.5 overflow-hidden rounded-full bg-muted"
+                  role="progressbar"
+                  :aria-valuenow="Math.round(item.progress * 100)"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  :aria-label="`Upload progress for ${item.name}`"
+                >
                   <div
                     class="h-full rounded-full transition-all"
                     :class="
@@ -836,6 +844,13 @@ onMounted(load);
                   <Button variant="secondary" @click="copyLink">
                     Copy
                   </Button>
+                </div>
+                <div class="flex items-center gap-3 pt-1">
+                  <QrCode :value="shareLink" label="QR code for the share link" />
+                  <p class="text-xs text-muted-foreground">
+                    Scan this code to open the share link on a phone or another
+                    device.
+                  </p>
                 </div>
                 <p class="text-xs" :class="share.is_enabled ? 'text-green-600' : 'text-muted-foreground'">
                   {{ share.is_enabled ? "Sharing is active" : "Sharing is paused" }}
