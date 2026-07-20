@@ -164,8 +164,8 @@ onMounted(load);
       <Card>
         <CardHeader>
           <CardTitle class="flex items-center gap-2">
-            <Package2 class="h-5 w-5 text-primary" />
-            {{ share.package_name }}
+            <Package2 class="h-5 w-5 shrink-0 text-primary" />
+            <span class="min-w-0 break-words">{{ share.package_name }}</span>
           </CardTitle>
           <CardDescription v-if="share.package_description">
             {{ share.package_description }}

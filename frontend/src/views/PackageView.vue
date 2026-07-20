@@ -1,7 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ArrowLeft, Calendar, Download, Pencil, RotateCw, Trash2, Upload, X } from "lucide-vue-next";
+import {
+  ArrowLeft,
+  Calendar,
+  Download,
+  Pencil,
+  QrCode as QrCodeIcon,
+  RotateCw,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-vue-next";
 import { packagesApi, sharesApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { Package, PackageStats, Share, Visibility } from "@/api/types";
@@ -45,6 +55,8 @@ const loading = ref(true);
 const downloadingAll = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 const dragging = ref(false);
+const showQr = ref(false);
+const qr = ref<InstanceType<typeof QrCode> | null>(null);
 
 // Upload state lives in a module-level composable, keyed by package id, so a
 // running upload's progress is preserved when the user leaves this package and
@@ -501,6 +513,15 @@ async function copyLink(): Promise<void> {
   }
 }
 
+async function downloadQr(): Promise<void> {
+  const base = pkg.value?.name?.trim() || "share";
+  try {
+    await qr.value?.download(`${base}-qr.png`);
+  } catch {
+    toast.error("Couldn't export the QR code");
+  }
+}
+
 onMounted(load);
 </script>
 
@@ -514,9 +535,9 @@ onMounted(load);
 
     <div v-if="loading" class="space-y-4">
       <div class="flex items-center justify-between gap-4">
-        <div class="space-y-2">
-          <Skeleton class="h-8 w-48" />
-          <Skeleton class="h-4 w-64" />
+        <div class="min-w-0 space-y-2">
+          <Skeleton class="h-8 w-48 max-w-full" />
+          <Skeleton class="h-4 w-64 max-w-full" />
         </div>
         <Skeleton class="h-9 w-40 shrink-0" />
       </div>
@@ -568,7 +589,7 @@ onMounted(load);
       </Card>
 
       <div class="grid gap-4 lg:grid-cols-2 lg:items-start">
-        <Card>
+        <Card class="min-w-0">
           <CardHeader>
             <CardTitle>Files</CardTitle>
             <CardDescription>
@@ -713,12 +734,12 @@ onMounted(load);
                 <Input
                   v-model="fileFilter"
                   placeholder="Filter files..."
-                  class="sm:max-w-xs"
+                  class="sm:flex-1"
                 />
                 <select
                   v-model="fileSort"
                   aria-label="Sort files"
-                  class="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  class="h-10 w-full rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:w-44"
                 >
                   <option value="name">Name (A–Z)</option>
                   <option value="size">Size (largest)</option>
@@ -792,7 +813,7 @@ onMounted(load);
           </CardContent>
         </Card>
 
-        <Card>
+        <Card class="min-w-0">
           <CardHeader>
             <CardTitle>Sharing</CardTitle>
             <CardDescription>
@@ -802,7 +823,7 @@ onMounted(load);
           <CardContent class="space-y-4">
             <div class="space-y-2">
               <Label>Visibility</Label>
-              <div class="flex gap-4">
+              <div class="flex flex-wrap gap-x-4 gap-y-2">
                 <label class="flex items-center gap-2 text-sm">
                   <input v-model="visibility" type="radio" value="public" /> Public
                 </label>
@@ -872,12 +893,36 @@ onMounted(load);
                     Copy
                   </Button>
                 </div>
-                <div class="flex items-center gap-3 pt-1">
-                  <QrCode :value="shareLink" label="QR code for the share link" />
-                  <p class="text-xs text-muted-foreground">
-                    Scan this code to open the share link on a phone or another
-                    device.
-                  </p>
+                <div class="pt-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    class="gap-1.5"
+                    :aria-expanded="showQr"
+                    aria-controls="share-qr"
+                    @click="showQr = !showQr"
+                  >
+                    <QrCodeIcon class="h-4 w-4" />
+                    {{ showQr ? "Hide QR code" : "Show QR code" }}
+                  </Button>
+                  <div
+                    v-if="showQr"
+                    id="share-qr"
+                    class="mt-3 flex flex-col items-center gap-3 rounded-md border p-4 text-center"
+                  >
+                    <QrCode ref="qr" :value="shareLink" label="QR code for the share link" />
+                    <p class="text-xs text-muted-foreground">
+                      Scan to open the share link on another device.
+                    </p>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      class="gap-1.5"
+                      @click="downloadQr"
+                    >
+                      <Download class="h-4 w-4" /> Download PNG
+                    </Button>
+                  </div>
                 </div>
                 <p class="text-xs" :class="share.is_enabled ? 'text-green-600' : 'text-muted-foreground'">
                   {{ share.is_enabled ? "Sharing is active" : "Sharing is paused" }}

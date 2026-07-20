@@ -219,12 +219,13 @@ onMounted(() => {
           v-for="pkg in packages"
           :key="pkg.id"
           :to="{ name: 'package', params: { id: pkg.id } }"
+          class="min-w-0"
         >
           <Card class="h-full transition-colors hover:border-primary">
             <CardHeader>
-              <CardTitle class="flex items-center justify-between text-lg">
-                {{ pkg.name }}
-                <Share2 class="h-4 w-4 text-muted-foreground" />
+              <CardTitle class="flex items-center justify-between gap-2 text-lg">
+                <span class="truncate">{{ pkg.name }}</span>
+                <Share2 class="h-4 w-4 shrink-0 text-muted-foreground" />
               </CardTitle>
               <CardDescription>
                 {{ pkg.files.length }} file(s)
