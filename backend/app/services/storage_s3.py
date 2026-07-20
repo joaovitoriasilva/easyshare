@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 from typing import Any, BinaryIO, cast
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, urlparse
 
 import boto3
 from boto3.s3.transfer import TransferConfig
@@ -25,7 +25,11 @@ from fastapi.responses import RedirectResponse
 from starlette import status
 from starlette.responses import Response
 
-from app.services.storage import FileTooLargeError, StorageBackend
+from app.services.storage import (
+    FileTooLargeError,
+    StorageBackend,
+    content_disposition_attachment,
+)
 
 # HeadObject error codes meaning "the object is not there" (as opposed to auth,
 # region, throttling or 5xx failures, which must surface rather than masquerade
@@ -49,14 +53,6 @@ def _measure(source: BinaryIO) -> int:
     size = source.tell()
     source.seek(0)
     return size
-
-
-def _content_disposition(filename: str) -> str:
-    """Build an ``attachment`` Content-Disposition, matching Starlette's rules."""
-    quoted = quote(filename)
-    if quoted == filename:
-        return f'attachment; filename="{filename}"'
-    return f"attachment; filename*=utf-8''{quoted}"
 
 
 class S3StorageBackend(StorageBackend):
@@ -151,7 +147,9 @@ class S3StorageBackend(StorageBackend):
             Params={
                 "Bucket": self._bucket,
                 "Key": self._object_key(storage_key),
-                "ResponseContentDisposition": _content_disposition(filename),
+                "ResponseContentDisposition": content_disposition_attachment(
+                    filename
+                ),
                 "ResponseContentType": content_type,
             },
             ExpiresIn=self._url_expiry,

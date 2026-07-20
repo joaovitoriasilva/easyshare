@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 
+import pytest
 from app.core.rate_limit import limiter
 from fastapi.testclient import TestClient
 
@@ -216,3 +217,93 @@ def test_login_rate_limited(client: TestClient) -> None:
         limiter.enabled = False
     assert statuses[-1] == 429
     assert 429 not in statuses[:10]
+
+
+def test_login_locks_account_after_repeated_failures(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An account locks (429) after exhausting its failed-attempt budget."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "login_max_failed_attempts", 3)
+    monkeypatch.setattr(settings, "login_lockout_minutes", 15)
+    register_and_login(client, "lockme", "lockme@example.com", "correctpass1")
+
+    for _ in range(3):
+        resp = client.post(
+            "/api/auth/login",
+            data={"username": "lockme", "password": "wrongpass"},
+        )
+        assert resp.status_code == 401
+
+    # Now locked: even the correct password is refused, with a Retry-After hint.
+    locked = client.post(
+        "/api/auth/login",
+        data={"username": "lockme", "password": "correctpass1"},
+    )
+    assert locked.status_code == 429
+    assert locked.headers.get("Retry-After") is not None
+
+
+def test_successful_login_resets_failed_attempts(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A correct login clears the counter so earlier failures don't accumulate."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "login_max_failed_attempts", 3)
+    register_and_login(client, "resetme", "resetme@example.com", "correctpass1")
+
+    for _ in range(2):
+        client.post(
+            "/api/auth/login", data={"username": "resetme", "password": "nope"}
+        )
+    # A correct login resets the counter...
+    assert (
+        client.post(
+            "/api/auth/login",
+            data={"username": "resetme", "password": "correctpass1"},
+        ).status_code
+        == 200
+    )
+    # ...so two further failures do not reach the lock threshold.
+    for _ in range(2):
+        assert (
+            client.post(
+                "/api/auth/login", data={"username": "resetme", "password": "nope"}
+            ).status_code
+            == 401
+        )
+    assert (
+        client.post(
+            "/api/auth/login",
+            data={"username": "resetme", "password": "correctpass1"},
+        ).status_code
+        == 200
+    )
+
+
+def test_login_lockout_disabled_when_zero(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Setting the attempt budget to 0 disables lockout entirely."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "login_max_failed_attempts", 0)
+    register_and_login(client, "nolock", "nolock@example.com", "correctpass1")
+
+    for _ in range(5):
+        assert (
+            client.post(
+                "/api/auth/login", data={"username": "nolock", "password": "nope"}
+            ).status_code
+            == 401
+        )
+    # Never locks; the correct password still works.
+    assert (
+        client.post(
+            "/api/auth/login",
+            data={"username": "nolock", "password": "correctpass1"},
+        ).status_code
+        == 200
+    )

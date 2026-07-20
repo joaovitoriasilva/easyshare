@@ -11,10 +11,10 @@ from app.services.storage import (
     FileTooLargeError,
     LocalStorageBackend,
     build_storage,
+    content_disposition_attachment,
 )
 from app.services.storage_s3 import (
     S3StorageBackend,
-    _content_disposition,
     _measure,
 )
 from botocore.exceptions import ClientError
@@ -163,7 +163,7 @@ def test_s3_download_response_redirects_to_presigned_url() -> None:
 
 
 def test_content_disposition_encodes_unicode() -> None:
-    assert _content_disposition("a.txt") == 'attachment; filename="a.txt"'
-    assert _content_disposition("résumé.txt").startswith(
+    assert content_disposition_attachment("a.txt") == 'attachment; filename="a.txt"'
+    assert content_disposition_attachment("résumé.txt").startswith(
         "attachment; filename*=utf-8''"
     )

@@ -10,6 +10,7 @@ from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.core.config import settings
 from app.core.logging import reset_request_id, set_request_id
 
 logger = logging.getLogger("easyshare.access")
@@ -145,12 +146,19 @@ class RequestContextMiddleware:
             raise
         duration_ms = round((time.perf_counter() - start) * 1000, 2)
         if scope.get("path") not in _QUIET_PATHS:
-            logger.info(
+            # Escalate a slow request to WARNING (keeping one line per request)
+            # and tag it with ``slow`` so a log shipper can alert on latency
+            # regressions without ingesting every access line.
+            threshold = settings.slow_request_ms
+            is_slow = threshold > 0 and duration_ms >= threshold
+            logger.log(
+                logging.WARNING if is_slow else logging.INFO,
                 "request.completed",
                 extra={
                     **extra,
                     "status_code": status_code,
                     "duration_ms": duration_ms,
+                    "slow": is_slow,
                 },
             )
         reset_request_id(token)

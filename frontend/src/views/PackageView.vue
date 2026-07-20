@@ -14,7 +14,7 @@ import {
 } from "lucide-vue-next";
 import { packagesApi, sharesApi } from "@/api";
 import { ApiError } from "@/api/client";
-import type { Package, PackageStats, Share, Visibility } from "@/api/types";
+import type { Package, PackageFile, PackageStats, Share, Visibility } from "@/api/types";
 import { formatBytes } from "@/lib/format";
 import { downloadUrl } from "@/lib/download";
 import { copyText } from "@/lib/clipboard";
@@ -65,6 +65,33 @@ const { uploadsFor, isUploading, startUploads, cancelUpload, retryUpload, dismis
   useUploads();
 const uploads = uploadsFor(packageId);
 const uploading = isUploading(packageId);
+
+// Aggregate progress across the current batch, for the summary bar above the
+// per-file rows.
+const uploadSummary = computed(() => {
+  const items = uploads.value;
+  const total = items.length;
+  if (total === 0) {
+    return null;
+  }
+  let progressSum = 0;
+  let done = 0;
+  let failed = 0;
+  for (const item of items) {
+    progressSum += item.progress;
+    if (item.status === "done") {
+      done += 1;
+    } else if (item.status === "error" || item.status === "canceled") {
+      failed += 1;
+    }
+  }
+  return {
+    total,
+    done,
+    failed,
+    percent: Math.round((progressSum / total) * 100),
+  };
+});
 
 const editing = ref(false);
 const editName = ref("");
@@ -251,7 +278,23 @@ async function saveDetails(): Promise<void> {
 }
 
 function runUploads(files: File[]): void {
-  void startUploads(packageId, files, auth.maxFileSize);
+  if (files.length === 0) {
+    return;
+  }
+  // Reject a batch that would exceed the per-package file cap up front, so the
+  // user gets one clear message instead of a 400 toast per overflowing file.
+  const current = pkg.value?.files.length ?? 0;
+  const max = auth.maxFilesPerPackage;
+  if (max > 0 && current + files.length > max) {
+    const remaining = Math.max(0, max - current);
+    toast.error(
+      remaining === 0
+        ? `This package already has the maximum of ${max} files.`
+        : `You can add ${remaining} more file${remaining === 1 ? "" : "s"} (limit ${max}).`,
+    );
+    return;
+  }
+  void startUploads(packageId, files, auth.maxFileSize, pkg.value?.name ?? "");
 }
 
 function onUpload(event: Event): void {
@@ -285,6 +328,32 @@ watch(uploading, (active, wasActive) => {
   }
 });
 
+/**
+ * Optimistically apply `mutate` to the current file list, run `apiCall`, and on
+ * failure restore the previous list and surface `failMessage`. Centralises the
+ * snapshot/restore that every file-removal action needs.
+ */
+async function optimisticFileUpdate(
+  mutate: (files: PackageFile[]) => PackageFile[],
+  apiCall: () => Promise<void>,
+  successMessage: string,
+  failMessage: string,
+): Promise<void> {
+  const current = pkg.value;
+  if (!current) {
+    return;
+  }
+  const previous = current.files;
+  current.files = mutate(previous);
+  try {
+    await apiCall();
+    toast.success(successMessage);
+  } catch (err) {
+    current.files = previous;
+    toast.error(err instanceof ApiError ? err.message : failMessage);
+  }
+}
+
 async function removeFile(fileId: number): Promise<void> {
   const confirmed = await confirm({
     title: "Remove file",
@@ -295,25 +364,17 @@ async function removeFile(fileId: number): Promise<void> {
   if (!confirmed) {
     return;
   }
-  const current = pkg.value;
-  if (!current) {
-    return;
-  }
-  // Optimistically drop the file; restore the list if the request fails.
-  const previous = current.files;
-  current.files = previous.filter((file) => file.id !== fileId);
   if (selectedFiles.value.has(fileId)) {
     const nextSelected = new Set(selectedFiles.value);
     nextSelected.delete(fileId);
     selectedFiles.value = nextSelected;
   }
-  try {
-    await packagesApi.removeFile(packageId, fileId);
-    toast.success("File removed");
-  } catch (err) {
-    current.files = previous;
-    toast.error(err instanceof ApiError ? err.message : "Failed to remove file");
-  }
+  await optimisticFileUpdate(
+    (files) => files.filter((file) => file.id !== fileId),
+    () => packagesApi.removeFile(packageId, fileId),
+    "File removed",
+    "Failed to remove file",
+  );
 }
 
 async function removeAllFiles(): Promise<void> {
@@ -329,21 +390,13 @@ async function removeAllFiles(): Promise<void> {
   if (!confirmed) {
     return;
   }
-  const current = pkg.value;
-  if (!current) {
-    return;
-  }
-  // Optimistically clear the list; restore it if the request fails.
-  const previous = current.files;
-  current.files = [];
   selectedFiles.value = new Set();
-  try {
-    await packagesApi.removeAllFiles(packageId);
-    toast.success("All files removed");
-  } catch (err) {
-    current.files = previous;
-    toast.error(err instanceof ApiError ? err.message : "Failed to remove files");
-  }
+  await optimisticFileUpdate(
+    () => [],
+    () => packagesApi.removeAllFiles(packageId),
+    "All files removed",
+    "Failed to remove files",
+  );
 }
 
 async function deleteSelectedFiles(): Promise<void> {
@@ -360,22 +413,14 @@ async function deleteSelectedFiles(): Promise<void> {
   if (!confirmed) {
     return;
   }
-  const current = pkg.value;
-  if (!current) {
-    return;
-  }
-  // Optimistically drop the selected files; restore them if the request fails.
   const idSet = new Set(ids);
-  const previous = current.files;
-  current.files = previous.filter((file) => !idSet.has(file.id));
   selectedFiles.value = new Set();
-  try {
-    await packagesApi.removeAllFiles(packageId, ids);
-    toast.success("Files removed");
-  } catch (err) {
-    current.files = previous;
-    toast.error(err instanceof ApiError ? err.message : "Failed to remove files");
-  }
+  await optimisticFileUpdate(
+    (files) => files.filter((file) => !idSet.has(file.id)),
+    () => packagesApi.removeAllFiles(packageId, ids),
+    "Files removed",
+    "Failed to remove files",
+  );
 }
 
 async function triggerDownload(
@@ -637,6 +682,34 @@ onMounted(load);
                 <p class="text-xs text-muted-foreground">
                   Up to {{ formatBytes(auth.maxFileSize) }} per file
                 </p>
+              </div>
+            </div>
+
+            <div v-if="uploadSummary" class="space-y-1.5">
+              <div class="flex items-center justify-between gap-2 text-xs">
+                <span class="min-w-0 truncate font-medium">
+                  {{ uploading ? "Uploading\u2026" : "Upload complete" }}
+                  {{ uploadSummary.done }}/{{ uploadSummary.total }}
+                  <span v-if="uploadSummary.failed > 0" class="text-destructive">
+                    &middot; {{ uploadSummary.failed }} failed
+                  </span>
+                </span>
+                <span class="shrink-0 tabular-nums text-muted-foreground">
+                  {{ uploadSummary.percent }}%
+                </span>
+              </div>
+              <div
+                class="h-1.5 overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+                :aria-valuenow="uploadSummary.percent"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-label="Overall upload progress"
+              >
+                <div
+                  class="h-full rounded-full bg-primary transition-all"
+                  :style="{ width: `${uploadSummary.percent}%` }"
+                />
               </div>
             </div>
 

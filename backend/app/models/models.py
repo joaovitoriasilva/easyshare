@@ -49,6 +49,16 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Consecutive failed-login counter and the time (if any) until which further
+    # login attempts are refused. Both are reset on a successful login. They
+    # back the account-lockout defence (see app/api/routes/auth.py) and live on
+    # the row so the lockout is shared across workers/replicas.
+    failed_login_attempts: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False
+    )
+    locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Per-user storage budget in bytes, snapshotted from the configured default
     # (``storage_quota_per_user``) when the account is created; 0 means
     # unlimited. Administrators can adjust it per user afterwards.

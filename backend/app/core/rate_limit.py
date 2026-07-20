@@ -56,6 +56,25 @@ limiter = Limiter(
 )
 
 
+def rate_limit_store_healthy() -> bool:
+    """Return whether the rate-limit counter store is reachable.
+
+    Always ``True`` when rate limiting is disabled or backed by in-process
+    memory (there is nothing external to reach). For a shared store (e.g. Redis
+    in a distributed deployment) it probes the backend so a dead store surfaces
+    via the readiness probe instead of silently failing requests later.
+    """
+    if not settings.rate_limit_enabled:
+        return True
+    storage = getattr(limiter, "_storage", None)
+    if storage is None:
+        return True
+    try:
+        return bool(storage.check())
+    except Exception:
+        return False
+
+
 def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> Response:
     """Return a JSON 429 with ``Retry-After``/``X-RateLimit-*`` headers."""
     logger.warning(

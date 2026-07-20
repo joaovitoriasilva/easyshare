@@ -67,7 +67,7 @@ def test_list_packages_pagination(client: TestClient) -> None:
     )
 
 
-def test_list_packages_includes_files(client: TestClient) -> None:
+def test_list_packages_reports_file_count(client: TestClient) -> None:
     headers = register_and_login(client)
     pkg_id = _create_package(client, headers)
     client.post(
@@ -77,7 +77,9 @@ def test_list_packages_includes_files(client: TestClient) -> None:
     )
     listing = client.get("/api/packages", headers=headers).json()
     assert listing["items"][0]["id"] == pkg_id
-    assert [f["filename"] for f in listing["items"][0]["files"]] == ["a.txt"]
+    assert listing["items"][0]["file_count"] == 1
+    # The list is deliberately lean: the full files array is not serialised here.
+    assert "files" not in listing["items"][0]
 
 
 def test_list_packages_search_filters_by_name_and_description(

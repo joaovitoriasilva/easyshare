@@ -5,7 +5,6 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import selectinload
 
 from app.api.deps import (
     CurrentUser,
@@ -23,6 +22,7 @@ from app.schemas.schemas import (
     MessageResponse,
     PackageCreate,
     PackageFileRead,
+    PackageListItem,
     PackagePage,
     PackageRead,
     PackageStats,
@@ -67,11 +67,11 @@ def list_packages(
 ) -> PackagePage:
     """List packages owned by the current user, newest first (paginated).
 
-    ``files`` are eager-loaded with ``selectinload`` so serialising the page
-    issues one extra query instead of one per package (avoids N+1). ``total``
-    lets the client render page controls without fetching every package. An
-    optional ``q`` filters by a case-insensitive substring of the package name
-    or description.
+    Each item carries a ``file_count`` computed by a single grouped query rather
+    than the full file list, so listing N packages never serialises every file
+    of every package (avoids N+1 and large payloads). ``total`` lets the client
+    render page controls without fetching every package. An optional ``q``
+    filters by a case-insensitive substring of the package name or description.
     """
     filters = [Package.owner_id == current_user.id]
     if q and q.strip():
@@ -90,13 +90,32 @@ def list_packages(
             select(Package)
             .where(*filters)
             .order_by(Package.created_at.desc())
-            .options(selectinload(Package.files))
             .limit(limit)
             .offset(offset)
         )
     )
+    # One grouped query yields the file count for just the packages on this page.
+    package_ids = [pkg.id for pkg in items]
+    counts: dict[int, int] = {}
+    if package_ids:
+        rows = db.execute(
+            select(PackageFile.package_id, func.count())
+            .where(PackageFile.package_id.in_(package_ids))
+            .group_by(PackageFile.package_id)
+        )
+        counts = {pid: int(count) for pid, count in rows}
     return PackagePage(
-        items=[PackageRead.model_validate(pkg) for pkg in items],
+        items=[
+            PackageListItem(
+                id=pkg.id,
+                name=pkg.name,
+                description=pkg.description,
+                created_at=pkg.created_at,
+                updated_at=pkg.updated_at,
+                file_count=counts.get(pkg.id, 0),
+            )
+            for pkg in items
+        ],
         total=total,
         limit=limit,
         offset=offset,

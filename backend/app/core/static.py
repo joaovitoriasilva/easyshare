@@ -47,11 +47,20 @@ def _safe_resolve(base_dir: Path, untrusted_path: str) -> Path | None:
     return candidate
 
 
-def _serve(path: str) -> FileResponse:
+def _serve(path: str, cache_control: str) -> FileResponse:
     resolved = _safe_resolve(settings.frontend_dir, path)
     if resolved is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    return FileResponse(resolved)
+    return FileResponse(resolved, headers={"Cache-Control": cache_control})
+
+
+# Vite emits content-hashed assets under ``/assets/`` whose URL changes whenever
+# their content does, so they can be cached forever; the SPA shell must always
+# be revalidated so a fresh deploy is picked up on the next load; other unhashed
+# public files (favicons, manifest, theme-init.js) get a short cache.
+_IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
+_REVALIDATE_CACHE = "no-cache"
+_SHORT_CACHE = "public, max-age=3600"
 
 
 @router.get("/{full_path:path}", include_in_schema=False)
@@ -69,5 +78,8 @@ def serve_frontend(full_path: str) -> FileResponse:
     # A path segment with a "." (app.js, favicon.ico, ...) is a concrete asset;
     # anything else is a client-side route, so serve the SPA shell for it.
     if "." in full_path.rsplit("/", 1)[-1]:
-        return _serve(full_path)
-    return _serve("index.html")
+        cache_control = (
+            _IMMUTABLE_CACHE if full_path.startswith("assets/") else _SHORT_CACHE
+        )
+        return _serve(full_path, cache_control)
+    return _serve("index.html", _REVALIDATE_CACHE)

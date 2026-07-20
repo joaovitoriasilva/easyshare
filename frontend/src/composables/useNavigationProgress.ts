@@ -23,11 +23,25 @@ function clearTimers(): void {
   }
 }
 
+/** Whether the user asked the OS to minimise non-essential motion. */
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
 /** Begin a navigation: show the bar and ease it towards ~90%. */
 function start(): void {
   clearTimers();
   active.value = true;
   progress.value = 0.08;
+  // Reduced motion: skip the animated trickle; show a static, near-full bar.
+  if (prefersReducedMotion()) {
+    progress.value = 0.8;
+    return;
+  }
   trickleTimer = setInterval(() => {
     const remaining = 0.9 - progress.value;
     if (remaining > 0.01) {
@@ -43,6 +57,12 @@ function done(): void {
     return;
   }
   progress.value = 1;
+  // Reduced motion: hide immediately instead of a timed fade-out.
+  if (prefersReducedMotion()) {
+    active.value = false;
+    progress.value = 0;
+    return;
+  }
   doneTimer = setTimeout(() => {
     active.value = false;
     progress.value = 0;

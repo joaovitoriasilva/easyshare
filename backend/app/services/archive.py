@@ -14,14 +14,13 @@ import threading
 import zipfile
 from collections.abc import Iterable, Iterator
 from typing import BinaryIO, cast
-from urllib.parse import quote
 
 from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse
 
 from app.core.config import settings
 from app.models.models import PackageFile
-from app.services.storage import storage
+from app.services.storage import content_disposition_attachment, storage
 
 # Stream each stored file a chunk at a time so a large archive is never held in
 # memory (or on disk) in full.
@@ -77,17 +76,8 @@ def _safe_download_name(name: str) -> str:
 
 
 def _zip_content_disposition(package_name: str) -> str:
-    """Build a ``Content-Disposition`` header value for the archive download.
-
-    Mirrors Starlette's ``FileResponse`` handling: a plain quoted ``filename``
-    for ASCII names, and the RFC 5987 ``filename*`` form when the name contains
-    characters that must be percent-encoded.
-    """
-    name = f"{_safe_download_name(package_name)}.zip"
-    quoted = quote(name)
-    if quoted == name:
-        return f'attachment; filename="{name}"'
-    return f"attachment; filename*=utf-8''{quoted}"
+    """Build a ``Content-Disposition`` header value for the archive download."""
+    return content_disposition_attachment(f"{_safe_download_name(package_name)}.zip")
 
 
 class _ZipStreamBuffer:

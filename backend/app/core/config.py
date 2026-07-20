@@ -56,6 +56,14 @@ class Settings(BaseSettings):
         default_factory=lambda: max(2, min(os.cpu_count() or 2, 8)), ge=1
     )
     allow_registration: bool = True
+    # Account lockout: after this many consecutive failed logins an account is
+    # temporarily locked for ``login_lockout_minutes``, stopping a slow, low-rate
+    # credential-stuffing attack against a single account that would otherwise
+    # stay under the per-IP rate limit. The counter is stored on the user row so
+    # the lockout is shared across every worker/replica and survives restarts.
+    # Set ``login_max_failed_attempts`` to 0 to disable the feature entirely.
+    login_max_failed_attempts: int = Field(default=10, ge=0)
+    login_lockout_minutes: int = Field(default=15, ge=1)
 
     # Database
     database_url: str = "sqlite:///./easyshare.db"
@@ -137,6 +145,11 @@ class Settings(BaseSettings):
     # Logging / observability
     log_level: str = "INFO"
     log_format: str = "console"  # "console" (dev) or "json" (production)
+    # Requests taking at least this many milliseconds are logged at WARNING with
+    # a ``slow`` marker (in addition to the normal access line's level) so a log
+    # shipper can alert on latency regressions without ingesting every line. Set
+    # to 0 to disable slow-request logging.
+    slow_request_ms: int = Field(default=1000, ge=0)
 
     # Audit log retention. When ``audit_retention_days`` is positive a
     # background task periodically deletes audit events older than that many

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -33,12 +34,55 @@ from app.services.quota import user_storage_used
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _locked_until(user: User) -> datetime | None:
+    """Return the (aware) lockout expiry if the account is currently locked.
+
+    Stored datetimes may be naive on SQLite; treat those as UTC so the
+    comparison against an aware ``now`` never raises. Returns ``None`` once the
+    window has elapsed (or was never set).
+    """
+    if user.locked_until is None:
+        return None
+    expiry = user.locked_until
+    if expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=UTC)
+    return expiry if expiry > datetime.now(UTC) else None
+
+
+def _register_failed_login(db: DbSession, user: User) -> None:
+    """Count a failed attempt and lock the account once the budget is spent.
+
+    On reaching ``login_max_failed_attempts`` the account is locked for
+    ``login_lockout_minutes`` and the counter is reset, so the next window
+    starts fresh. A non-positive limit disables the feature.
+    """
+    limit = settings.login_max_failed_attempts
+    if limit <= 0:
+        return
+    user.failed_login_attempts += 1
+    if user.failed_login_attempts >= limit:
+        user.locked_until = datetime.now(UTC) + timedelta(
+            minutes=settings.login_lockout_minutes
+        )
+        user.failed_login_attempts = 0
+    db.commit()
+
+
+def _clear_failed_logins(db: DbSession, user: User) -> None:
+    """Reset lockout bookkeeping after a successful login (only if needed)."""
+    if user.failed_login_attempts or user.locked_until is not None:
+        user.failed_login_attempts = 0
+        user.locked_until = None
+        db.commit()
+
+
 @router.get("/config", response_model=AuthConfig)
 def auth_config() -> AuthConfig:
     """Public auth-related feature flags for the frontend."""
     return AuthConfig(
         allow_registration=settings.allow_registration,
         max_file_size=settings.max_file_size,
+        max_files_per_package=settings.max_files_per_package,
         email_verification_enabled=settings.email_verification_enabled,
     )
 
@@ -97,11 +141,30 @@ def login(
             or_(User.email == identifier, User.username == identifier)
         )
     )
+    # Refuse a locked account before verifying its password so an attacker who
+    # has tripped the lockout cannot keep probing it. Unknown identifiers keep no
+    # lockout state (that would be unbounded); the per-IP rate limit and the
+    # dummy verify below cover that path. The distinct 429 does reveal that the
+    # account exists, but registration's 409 already leaks that when open, and
+    # stopping a slow single-account brute force is worth the small trade-off.
+    locked_until = _locked_until(user) if user is not None else None
+    if user is not None and locked_until is not None:
+        retry_after = max(
+            1, int((locked_until - datetime.now(UTC)).total_seconds())
+        )
+        record_event("login.locked", request=request, actor=f"user:{user.id}")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed login attempts. Please try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
     if user is None or not verify_password(form_data.password, user.hashed_password):
         # Equalise timing for unknown usernames so accounts can't be enumerated
         # by measuring how long a failed login takes.
         if user is None:
             dummy_verify()
+        else:
+            _register_failed_login(db, user)
         record_event("login.failure", request=request, actor=identifier)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -113,6 +176,7 @@ def login(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive"
         )
+    _clear_failed_logins(db, user)
     token = create_access_token(user.id)
     record_event("login.success", request=request, actor=f"user:{user.id}")
     return Token(access_token=token)

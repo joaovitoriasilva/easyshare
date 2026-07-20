@@ -139,6 +139,9 @@ class LoginRequest(BaseModel):
 class AuthConfig(BaseModel):
     allow_registration: bool
     max_file_size: int
+    # Maximum number of files a single package may hold, so the UI can reject an
+    # over-cap batch client-side before uploading rather than on the 400.
+    max_files_per_package: int
     # Whether restricted shares require an emailed one-time code. When False the
     # frontend warns that allow-listed emails are accepted without verification.
     email_verification_enabled: bool
@@ -198,6 +201,24 @@ class PackageRead(BaseModel):
     files: list[PackageFileRead] = []
 
 
+class PackageListItem(BaseModel):
+    """A package as shown in the paginated list: metadata plus a file count.
+
+    The full ``files`` array is intentionally omitted so listing N packages does
+    not serialise every file of every package (the dashboard only needs the
+    count); fetch a single package to get its files.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    description: str | None
+    created_at: datetime
+    updated_at: datetime
+    file_count: int = 0
+
+
 class PackageStats(BaseModel):
     """Aggregated share view/download counters for an owned package."""
 
@@ -210,7 +231,7 @@ class PackageStats(BaseModel):
 class PackagePage(BaseModel):
     """A paginated page of the current user's packages."""
 
-    items: list[PackageRead]
+    items: list[PackageListItem]
     total: int
     limit: int
     offset: int

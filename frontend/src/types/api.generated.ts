@@ -328,11 +328,11 @@ export interface paths {
          * List Packages
          * @description List packages owned by the current user, newest first (paginated).
          *
-         *     ``files`` are eager-loaded with ``selectinload`` so serialising the page
-         *     issues one extra query instead of one per package (avoids N+1). ``total``
-         *     lets the client render page controls without fetching every package. An
-         *     optional ``q`` filters by a case-insensitive substring of the package name
-         *     or description.
+         *     Each item carries a ``file_count`` computed by a single grouped query rather
+         *     than the full file list, so listing N packages never serialises every file
+         *     of every package (avoids N+1 and large payloads). ``total`` lets the client
+         *     render page controls without fetching every package. An optional ``q``
+         *     filters by a case-insensitive substring of the package name or description.
          */
         get: operations["list_packages_api_packages_get"];
         put?: never;
@@ -772,6 +772,8 @@ export interface components {
             email_verification_enabled: boolean;
             /** Max File Size */
             max_file_size: number;
+            /** Max Files Per Package */
+            max_files_per_package: number;
         };
         /** Body_login_api_auth_login_post */
         Body_login_api_auth_login_post: {
@@ -860,12 +862,43 @@ export interface components {
             size: number;
         };
         /**
+         * PackageListItem
+         * @description A package as shown in the paginated list: metadata plus a file count.
+         *
+         *     The full ``files`` array is intentionally omitted so listing N packages does
+         *     not serialise every file of every package (the dashboard only needs the
+         *     count); fetch a single package to get its files.
+         */
+        PackageListItem: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Description */
+            description: string | null;
+            /**
+             * File Count
+             * @default 0
+             */
+            file_count: number;
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
          * PackagePage
          * @description A paginated page of the current user's packages.
          */
         PackagePage: {
             /** Items */
-            items: components["schemas"]["PackageRead"][];
+            items: components["schemas"]["PackageListItem"][];
             /** Limit */
             limit: number;
             /** Offset */

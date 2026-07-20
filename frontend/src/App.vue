@@ -5,6 +5,7 @@ import { Package2, LogOut, Menu, X } from "lucide-vue-next";
 import { useAuthStore } from "@/stores/auth";
 import { Button, Toaster, ConfirmDialog, NavigationProgress } from "@/components/ui";
 import ThemeToggle from "@/components/ThemeToggle.vue";
+import UploadIndicator from "@/components/UploadIndicator.vue";
 
 const auth = useAuthStore();
 const router = useRouter();
@@ -171,5 +172,6 @@ function logout(): void {
     </footer>
     <Toaster />
     <ConfirmDialog />
+    <UploadIndicator />
   </div>
 </template>

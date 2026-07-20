@@ -51,6 +51,37 @@ interface RequestOptions {
 /** Default per-request timeout; uploads opt out so large files aren't cut off. */
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+/**
+ * Shape an {@link ApiError} from a response status and its (optional) raw body
+ * text. A JSON body's `detail` becomes the message (and `detail` payload);
+ * anything else falls back to the supplied status text. Shared by the fetch and
+ * XHR paths so error parsing lives in one place.
+ */
+function buildApiError(
+  status: number,
+  fallbackMessage: string,
+  body: string | null,
+): ApiError {
+  let message = fallbackMessage;
+  let detail: unknown = null;
+  if (body) {
+    try {
+      const data: unknown = JSON.parse(body);
+      if (data && typeof data === "object" && "detail" in data) {
+        detail = (data as { detail: unknown }).detail;
+        if (typeof detail === "string") {
+          message = detail;
+        }
+      } else {
+        detail = data;
+      }
+    } catch {
+      /* ignore body parse errors */
+    }
+  }
+  return new ApiError(status, message, detail);
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {};
   const init: RequestInit = { method: options.method ?? "GET" };
@@ -102,21 +133,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
 
   if (!response.ok) {
-    let message = response.statusText;
-    let detail: unknown = null;
-    try {
-      const data: unknown = await response.json();
-      if (data && typeof data === "object" && "detail" in data) {
-        detail = (data as { detail: unknown }).detail;
-        if (typeof detail === "string") {
-          message = detail;
-        }
-      } else {
-        detail = data;
-      }
-    } catch {
-      /* ignore body parse errors */
-    }
+    const body = await response.text().catch(() => null);
+    const error = buildApiError(response.status, response.statusText, body);
     if (
       response.status === 401 &&
       options.auth !== false &&
@@ -124,7 +142,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     ) {
       unauthorizedHandler?.();
     }
-    throw new ApiError(response.status, message, detail);
+    throw error;
   }
 
   if (response.status === 204) {
@@ -179,25 +197,10 @@ function upload<T>(path: string, file: File, options: UploadOptions = {}): Promi
         }
         return;
       }
-      let message = xhr.statusText;
-      let detail: unknown = null;
-      try {
-        const data: unknown = JSON.parse(xhr.responseText);
-        if (data && typeof data === "object" && "detail" in data) {
-          detail = (data as { detail: unknown }).detail;
-          if (typeof detail === "string") {
-            message = detail;
-          }
-        } else {
-          detail = data;
-        }
-      } catch {
-        /* ignore body parse errors */
-      }
       if (xhr.status === 401) {
         unauthorizedHandler?.();
       }
-      reject(new ApiError(xhr.status, message, detail));
+      reject(buildApiError(xhr.status, xhr.statusText, xhr.responseText || null));
     });
 
     xhr.addEventListener("error", () =>

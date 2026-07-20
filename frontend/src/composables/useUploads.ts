@@ -15,6 +15,19 @@ export interface UploadItem {
 interface PackageUpload {
   items: UploadItem[];
   active: boolean;
+  /** Package display name, for the global indicator. */
+  name: string;
+}
+
+/** Aggregated view of one package's in-flight batch, for the global indicator. */
+export interface UploadBatchSummary {
+  packageId: number;
+  name: string;
+  total: number;
+  done: number;
+  uploading: number;
+  failed: number;
+  percent: number;
 }
 
 /**
@@ -38,6 +51,46 @@ interface UploadControl {
  */
 const uploadsByPackage = reactive(new Map<number, PackageUpload>());
 const controlByPackage = new Map<number, UploadControl>();
+
+// Aggregated summaries of every currently-active batch, shared by the global
+// upload indicator. Reading the reactive Map inside the computed tracks both
+// membership changes and the per-item progress/status mutated through the
+// stored reactive entries.
+const activeBatches = computed<UploadBatchSummary[]>(() => {
+  const summaries: UploadBatchSummary[] = [];
+  for (const [packageId, batch] of uploadsByPackage) {
+    if (!batch.active) {
+      continue;
+    }
+    const total = batch.items.length;
+    let progressSum = 0;
+    let done = 0;
+    let uploading = 0;
+    let failed = 0;
+    for (const item of batch.items) {
+      progressSum += item.progress;
+      if (item.status === "done") {
+        done += 1;
+      } else if (item.status === "uploading") {
+        uploading += 1;
+      } else {
+        failed += 1;
+      }
+    }
+    summaries.push({
+      packageId,
+      name: batch.name || `Package #${packageId}`,
+      total,
+      done,
+      uploading,
+      failed,
+      percent: total > 0 ? Math.round((progressSum / total) * 100) : 0,
+    });
+  }
+  return summaries;
+});
+
+const hasActiveUploads = computed(() => activeBatches.value.length > 0);
 
 const EMPTY: UploadItem[] = [];
 let nextItemId = 0;
@@ -122,6 +175,7 @@ export function useUploads() {
     packageId: number,
     files: File[],
     maxSize: number,
+    packageName = "",
   ): Promise<number> {
     if (isUploading(packageId).value || files.length === 0) {
       return 0;
@@ -148,6 +202,7 @@ export function useUploads() {
         status: "uploading",
       })),
       active: true,
+      name: packageName,
     });
     uploadsByPackage.set(packageId, entry);
     controlByPackage.set(packageId, {
@@ -261,6 +316,8 @@ export function useUploads() {
     cancelUpload,
     retryUpload,
     dismissUpload,
+    activeBatches,
+    hasActiveUploads,
   };
 }
 

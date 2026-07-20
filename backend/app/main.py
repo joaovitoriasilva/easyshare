@@ -32,7 +32,11 @@ from app.core.middleware import (
     RequestContextMiddleware,
     SecurityHeadersMiddleware,
 )
-from app.core.rate_limit import limiter, rate_limit_exceeded_handler
+from app.core.rate_limit import (
+    limiter,
+    rate_limit_exceeded_handler,
+    rate_limit_store_healthy,
+)
 from app.core.static import router as frontend_router
 from app.core.tasks import audit_retention_loop
 from app.services.storage import storage
@@ -160,6 +164,11 @@ def ready(db: DbSession) -> dict[str, str]:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Storage unavailable",
         ) from exc
+    if not rate_limit_store_healthy():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Rate-limit store unavailable",
+        )
     return {"status": "ready"}
 
 

@@ -17,6 +17,7 @@ import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import BinaryIO
+from urllib.parse import quote
 
 from fastapi.responses import FileResponse
 from starlette.responses import Response
@@ -27,6 +28,20 @@ from app.core.config import settings
 # on-disk path within both the ``storage_key`` column (255) and typical
 # filesystem per-component limits (NAME_MAX, usually 255 bytes).
 _MAX_READABLE_NAME = 150
+
+
+def content_disposition_attachment(filename: str) -> str:
+    """Build a ``Content-Disposition: attachment`` header value for ``filename``.
+
+    Mirrors Starlette's ``FileResponse`` handling: a plain quoted ``filename``
+    for names that need no escaping, and the RFC 5987 ``filename*`` form when the
+    name contains characters that must be percent-encoded. Shared by the archive
+    builder and the S3 backend so the rule lives in exactly one place.
+    """
+    quoted = quote(filename)
+    if quoted == filename:
+        return f'attachment; filename="{filename}"'
+    return f"attachment; filename*=utf-8''{quoted}"
 
 
 def _readable_name(file_id: int, filename: str) -> str:

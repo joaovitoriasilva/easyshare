@@ -4,7 +4,7 @@ import { RouterLink, useRouter } from "vue-router";
 import { FileArchive, Plus, Search, Share2 } from "lucide-vue-next";
 import { authApi, packagesApi } from "@/api";
 import { ApiError } from "@/api/client";
-import type { Package, StorageUsage } from "@/api/types";
+import type { PackageListItem, StorageUsage } from "@/api/types";
 import { formatBytes } from "@/lib/format";
 import { useToasts } from "@/composables/useToasts";
 import {
@@ -23,7 +23,7 @@ import {
 const toast = useToasts();
 const router = useRouter();
 
-const packages = ref<Package[]>([]);
+const packages = ref<PackageListItem[]>([]);
 const total = ref(0);
 const offset = ref(0);
 const pageSize = 12;
@@ -228,7 +228,7 @@ onMounted(() => {
                 <Share2 class="h-4 w-4 shrink-0 text-muted-foreground" />
               </CardTitle>
               <CardDescription>
-                {{ pkg.files.length }} file(s)
+                {{ pkg.file_count }} file(s)
               </CardDescription>
             </CardHeader>
             <CardContent v-if="pkg.description">

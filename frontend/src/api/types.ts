@@ -3,6 +3,9 @@ export type Visibility = "public" | "restricted";
 export interface AuthConfig {
   allow_registration: boolean;
   max_file_size: number;
+  // Maximum number of files a single package may hold; used to reject an
+  // over-cap batch before uploading.
+  max_files_per_package: number;
   // Whether restricted shares require an emailed one-time code. When false the
   // UI warns that allow-listed emails are accepted without verification.
   email_verification_enabled: boolean;
@@ -45,6 +48,20 @@ export interface Package {
   files: PackageFile[];
 }
 
+/**
+ * A package as returned by the paginated list endpoint: metadata plus a file
+ * count. The full `files` array is only returned when fetching a single
+ * package, so the dashboard stays lean.
+ */
+export interface PackageListItem {
+  id: number;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+  file_count: number;
+}
+
 export interface PackageStats {
   views: number;
   downloads: number;
@@ -53,7 +70,7 @@ export interface PackageStats {
 }
 
 export interface PackagePage {
-  items: Package[];
+  items: PackageListItem[];
   total: number;
   limit: number;
   offset: number;

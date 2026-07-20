@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { Download, Lock, MailCheck, Package2 } from "lucide-vue-next";
 import { publicApi } from "@/api";
@@ -42,6 +42,32 @@ const awaitingCode = ref(false);
 const code = ref("");
 const codeValid = computed(() => code.value.trim().length >= 4);
 
+// Cooldown (seconds) before another code can be requested, so a recipient can't
+// hammer the resend button (the endpoint is also rate-limited server-side).
+const RESEND_COOLDOWN_SECONDS = 60;
+const resendIn = ref(0);
+let resendTimer: ReturnType<typeof setInterval> | undefined;
+
+function startResendCooldown(): void {
+  resendIn.value = RESEND_COOLDOWN_SECONDS;
+  if (resendTimer) {
+    clearInterval(resendTimer);
+  }
+  resendTimer = setInterval(() => {
+    resendIn.value -= 1;
+    if (resendIn.value <= 0 && resendTimer) {
+      clearInterval(resendTimer);
+      resendTimer = undefined;
+    }
+  }, 1000);
+}
+
+onUnmounted(() => {
+  if (resendTimer) {
+    clearInterval(resendTimer);
+  }
+});
+
 const emailValid = computed(() => isValidEmail(email.value));
 const showEmailError = computed(() => email.value.length > 0 && !emailValid.value);
 
@@ -75,6 +101,7 @@ async function unlock(): Promise<void> {
     if (result.verification_required) {
       awaitingCode.value = true;
       code.value = "";
+      startResendCooldown();
       toast.info("We emailed you a verification code.");
       return;
     }
@@ -102,6 +129,9 @@ async function verify(): Promise<void> {
 }
 
 function resendCode(): void {
+  if (resendIn.value > 0) {
+    return;
+  }
   code.value = "";
   void unlock();
 }
@@ -210,8 +240,13 @@ onMounted(load);
               <Alert v-if="error" kind="error">{{ error }}</Alert>
               <div class="flex flex-wrap items-center gap-2">
                 <Button type="submit" :disabled="!codeValid">Verify</Button>
-                <Button type="button" variant="ghost" @click="resendCode">
-                  Resend code
+                <Button
+                  type="button"
+                  variant="ghost"
+                  :disabled="resendIn > 0"
+                  @click="resendCode"
+                >
+                  {{ resendIn > 0 ? `Resend in ${resendIn}s` : "Resend code" }}
                 </Button>
               </div>
             </form>
