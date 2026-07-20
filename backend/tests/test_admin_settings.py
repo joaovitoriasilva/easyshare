@@ -35,9 +35,27 @@ def test_settings_expose_safe_config_without_secrets(client: TestClient) -> None
         assert "@" not in body[key]
         assert "/" not in body[key]
 
+    # The safe email/verification knobs are exposed for administrators.
+    assert body["email_verification_enabled"] == settings.email_verification_enabled
+    assert body["smtp_use_tls"] == settings.smtp_use_tls
+    assert body["smtp_timeout"] == settings.smtp_timeout
+    assert (
+        body["share_verification_code_ttl_minutes"]
+        == settings.share_verification_code_ttl_minutes
+    )
+    assert (
+        body["share_verification_max_attempts"]
+        == settings.share_verification_max_attempts
+    )
+
     # The signing secret and raw connection strings must never be exposed,
-    # neither as fields nor anywhere in the serialised payload.
+    # neither as fields nor anywhere in the serialised payload. The SMTP host,
+    # login and password are likewise omitted (only the enabled flag is shown).
     assert "secret_key" not in body
     assert "database_url" not in body
     assert "storage_uri" not in body
+    assert "smtp_host" not in body
+    assert "smtp_username" not in body
+    assert "smtp_password" not in body
+    assert "smtp_from" not in body
     assert settings.secret_key not in json.dumps(body)

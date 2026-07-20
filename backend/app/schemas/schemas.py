@@ -114,6 +114,10 @@ class ServiceSettingsRead(BaseModel):
 
     # Email / restricted-share verification
     email_verification_enabled: bool
+    smtp_use_tls: bool
+    smtp_timeout: int
+    share_verification_code_ttl_minutes: int
+    share_verification_max_attempts: int
 
     # Logging & observability
     log_level: str

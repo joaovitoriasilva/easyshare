@@ -72,10 +72,6 @@ const groups = computed<SettingGroup[]>(() => {
           label: "Share access token lifetime",
           value: duration(s.share_access_token_expire_minutes),
         },
-        {
-          label: "Restricted-share email verification",
-          value: yesNo(s.email_verification_enabled),
-        },
       ],
     },
     {
@@ -113,6 +109,22 @@ const groups = computed<SettingGroup[]>(() => {
       rows: [
         { label: "Enabled", value: yesNo(s.rate_limit_enabled) },
         { label: "Backend", value: s.rate_limit_backend },
+      ],
+    },
+    {
+      title: "Email / verification",
+      rows: [
+        { label: "Email verification", value: yesNo(s.email_verification_enabled) },
+        { label: "SMTP STARTTLS", value: yesNo(s.smtp_use_tls) },
+        { label: "SMTP timeout", value: `${s.smtp_timeout}s` },
+        {
+          label: "Verification code lifetime",
+          value: duration(s.share_verification_code_ttl_minutes),
+        },
+        {
+          label: "Max verification attempts",
+          value: String(s.share_verification_max_attempts),
+        },
       ],
     },
     {

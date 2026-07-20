@@ -145,6 +145,10 @@ export interface ServiceSettings {
   rate_limit_enabled: boolean;
   rate_limit_backend: string;
   email_verification_enabled: boolean;
+  smtp_use_tls: boolean;
+  smtp_timeout: number;
+  share_verification_code_ttl_minutes: number;
+  share_verification_max_attempts: number;
   log_level: string;
   log_format: string;
   audit_retention_days: number;

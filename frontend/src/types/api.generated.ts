@@ -1028,6 +1028,14 @@ export interface components {
             rate_limit_enabled: boolean;
             /** Share Access Token Expire Minutes */
             share_access_token_expire_minutes: number;
+            /** Share Verification Code Ttl Minutes */
+            share_verification_code_ttl_minutes: number;
+            /** Share Verification Max Attempts */
+            share_verification_max_attempts: number;
+            /** Smtp Timeout */
+            smtp_timeout: number;
+            /** Smtp Use Tls */
+            smtp_use_tls: boolean;
             /** Storage Backend */
             storage_backend: string;
             /** Storage Quota Per User */
