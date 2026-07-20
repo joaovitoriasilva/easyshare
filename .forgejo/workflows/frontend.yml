@@ -5,14 +5,18 @@ on:
     branches: [main]
     paths:
       - "frontend/**"
-      - ".github/workflows/frontend.yml"
+      - ".forgejo/workflows/frontend.yml"
   pull_request:
     paths:
       - "frontend/**"
-      - ".github/workflows/frontend.yml"
+      - ".forgejo/workflows/frontend.yml"
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ forgejo.workflow }}-${{ forgejo.ref }}
+  cancel-in-progress: true
 
 defaults:
   run:
@@ -20,12 +24,15 @@ defaults:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: local-runner
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: https://data.forgejo.org/actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: https://data.forgejo.org/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm

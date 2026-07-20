@@ -1,3 +1,6 @@
+> [!NOTE]
+> **GitHub Mirror** - If you are viewing this on GitHub, please be aware that this repository is a read-only mirror. Issues, pull requests, and all project activity are tracked on Codeberg: [https://codeberg.org/joaovitoriasilva/easyshare](https://codeberg.org/joaovitoriasilva/easyshare)
+
 # EasyShare
 
 EasyShare is a secure file & package sharing application. Authenticated users
@@ -255,3 +258,11 @@ cd frontend && npm run lint && npm run type-check && npm run test && npm run bui
 ## API overview
 
 Interactive API docs are available at `/docs` when the backend is running.
+
+## License
+
+This project is licensed under the AGPL-3.0 License - see the [LICENSE](LICENSE) file for details.
+
+## Contributing
+
+Contributions are welcomed! Please open an issue to discuss any changes or improvements before submitting a PR. Check out the [Contributing Guidelines](CONTRIBUTING.md) for more details.

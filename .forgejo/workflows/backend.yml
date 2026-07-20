@@ -5,14 +5,18 @@ on:
     branches: [main]
     paths:
       - "backend/**"
-      - ".github/workflows/backend.yml"
+      - ".forgejo/workflows/backend.yml"
   pull_request:
     paths:
       - "backend/**"
-      - ".github/workflows/backend.yml"
+      - ".forgejo/workflows/backend.yml"
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ forgejo.workflow }}-${{ forgejo.ref }}
+  cancel-in-progress: true
 
 defaults:
   run:
@@ -20,12 +24,15 @@ defaults:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: local-runner
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: https://data.forgejo.org/actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: https://data.forgejo.org/astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           working-directory: backend
 
