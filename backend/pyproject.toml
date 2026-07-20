@@ -59,6 +59,9 @@ required-version = "0.11.18"
 # Supply-chain cooling-off: never resolve a release published in the last 30
 # days, so a freshly-compromised version can't slip into a lock refresh.
 exclude-newer = "30 days"
+# Exempt safeuploads from the cooling-off so its latest release can be resolved
+# immediately (`false` opts a package out of the global exclude-newer entirely).
+exclude-newer-package = { safeuploads = false }
 
 # Pin the package index explicitly rather than relying on ambient config.
 [[tool.uv.index]]
