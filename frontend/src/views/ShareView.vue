@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { Download, Lock, MailCheck, Package2 } from "lucide-vue-next";
+import { Download, Lock, MailCheck, Package2, X } from "lucide-vue-next";
 import { publicApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { PublicShare } from "@/api/types";
@@ -10,6 +10,8 @@ import { downloadUrl } from "@/lib/download";
 import { fileIcon } from "@/lib/fileIcon";
 import { isValidEmail } from "@/lib/validation";
 import { useToasts } from "@/composables/useToasts";
+import { useArchiveDownload } from "@/composables/useArchiveDownload";
+import { setDocumentTitle } from "@/composables/useDocumentTitle";
 import {
   Alert,
   Button,
@@ -80,14 +82,29 @@ const hasSelection = computed(() => selected.value.size > 0);
 // place of the recipient's email so the email never appears in a download URL.
 const downloadToken = ref<string | null>(null);
 
+// Archive (zip) download with an in-app progress read-out; falls back to a
+// native browser download for archives too large to stream in memory.
+const {
+  downloading: archiving,
+  percent: archivePercent,
+  indeterminate: archiveIndeterminate,
+  start: startArchive,
+  cancel: cancelArchive,
+} = useArchiveDownload();
+
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
   try {
     share.value = await publicApi.view(token);
     unlocked.value = !share.value.requires_email;
+    setDocumentTitle(
+      share.value.package_name,
+      share.value.package_description ?? undefined,
+    );
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Share not found";
+    setDocumentTitle("Share unavailable");
   } finally {
     loading.value = false;
   }
@@ -157,13 +174,23 @@ function downloadFile(id: number, filename: string): void {
   toast.success("Download started");
 }
 
-function downloadSelected(): void {
-  const ids = hasSelection.value ? Array.from(selected.value) : [];
-  downloadUrl(
+async function downloadSelected(): Promise<void> {
+  const chosen = hasSelection.value
+    ? files.value.filter((file) => selected.value.has(file.id))
+    : files.value;
+  const ids = hasSelection.value ? chosen.map((file) => file.id) : [];
+  const estimatedBytes = chosen.reduce((sum, file) => sum + file.size, 0);
+  const filename = `${share.value?.package_name ?? "package"}.zip`;
+  const outcome = await startArchive(
     publicApi.downloadUrl(token, ids, downloadToken.value),
-    `${share.value?.package_name ?? "package"}.zip`,
+    filename,
+    estimatedBytes,
   );
-  toast.info("Preparing your download\u2026");
+  if (outcome === "completed") {
+    toast.success("Download ready");
+  } else if (outcome === "fell-back") {
+    toast.info("Download started");
+  }
 }
 
 onMounted(load);
@@ -212,7 +239,13 @@ onMounted(load);
               <div class="space-y-2">
                 <Label for="email">Email</Label>
                 <Tooltip content="Enter a valid email address" :open="showEmailError">
-                  <Input id="email" v-model="email" type="email" placeholder="you@example.com" />
+                  <Input
+                    id="email"
+                    v-model="email"
+                    type="email"
+                    placeholder="you@example.com"
+                    :aria-invalid="showEmailError ? 'true' : undefined"
+                  />
                 </Tooltip>
               </div>
               <Alert v-if="error" kind="error">{{ error }}</Alert>
@@ -235,6 +268,7 @@ onMounted(load);
                   inputmode="numeric"
                   autocomplete="one-time-code"
                   placeholder="123456"
+                  :aria-invalid="error ? 'true' : undefined"
                 />
               </div>
               <Alert v-if="error" kind="error">{{ error }}</Alert>
@@ -253,15 +287,54 @@ onMounted(load);
           </div>
 
           <div v-else class="space-y-4">
-            <div class="flex items-center justify-between gap-3">
-              <label class="flex items-center gap-2 text-sm">
-                <Checkbox :model-value="allSelected" @update:model-value="toggleAll" />
-                Select all
-              </label>
-              <Button size="sm" class="shrink-0" @click="downloadSelected">
-                <Download class="h-4 w-4" />
-                {{ hasSelection ? `Download ${selected.size} selected` : "Download all" }}
-              </Button>
+            <div class="space-y-3">
+              <div class="flex items-center justify-between gap-3">
+                <label class="flex items-center gap-2 text-sm">
+                  <Checkbox :model-value="allSelected" @update:model-value="toggleAll" />
+                  Select all
+                </label>
+                <Button
+                  v-if="!archiving"
+                  size="sm"
+                  class="shrink-0"
+                  :disabled="files.length === 0"
+                  @click="downloadSelected"
+                >
+                  <Download class="h-4 w-4" />
+                  {{ hasSelection ? `Download ${selected.size} selected` : "Download all" }}
+                </Button>
+                <Button
+                  v-else
+                  variant="ghost"
+                  size="sm"
+                  class="shrink-0"
+                  @click="cancelArchive"
+                >
+                  <X class="h-4 w-4" /> Cancel
+                </Button>
+              </div>
+              <div v-if="archiving" class="space-y-1">
+                <div class="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Preparing download…</span>
+                  <span v-if="archivePercent !== null" class="tabular-nums">
+                    {{ archivePercent }}%
+                  </span>
+                </div>
+                <div
+                  class="h-2 overflow-hidden rounded-full bg-muted"
+                  role="progressbar"
+                  :aria-valuenow="archivePercent ?? undefined"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-label="Preparing archive download"
+                >
+                  <div
+                    class="h-full rounded-full bg-primary transition-[width]"
+                    :class="archiveIndeterminate ? 'w-1/3 animate-pulse' : ''"
+                    :style="archiveIndeterminate ? undefined : { width: `${archivePercent ?? 0}%` }"
+                  />
+                </div>
+              </div>
             </div>
 
             <ul class="divide-y rounded-md border">

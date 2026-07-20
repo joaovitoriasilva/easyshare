@@ -11,6 +11,8 @@ export const useAuthStore = defineStore("auth", () => {
   const maxFileSize = ref(100 * 1024 * 1024);
   const maxFilesPerPackage = ref(50);
   const emailVerificationEnabled = ref(false);
+  const chunkUploadsEnabled = ref(true);
+  const chunkSize = ref(8 * 1024 * 1024);
 
   async function init(): Promise<void> {
     if (initialized.value) {
@@ -30,6 +32,8 @@ export const useAuthStore = defineStore("auth", () => {
       maxFileSize.value = config.max_file_size;
       maxFilesPerPackage.value = config.max_files_per_package;
       emailVerificationEnabled.value = config.email_verification_enabled;
+      chunkUploadsEnabled.value = config.chunk_uploads_enabled;
+      chunkSize.value = config.chunk_size;
     } catch {
       allowRegistration.value = true;
     }
@@ -54,5 +58,5 @@ export const useAuthStore = defineStore("auth", () => {
     user.value = null;
   }
 
-  return { user, initialized, allowRegistration, maxFileSize, maxFilesPerPackage, emailVerificationEnabled, init, login, register, logout };
+  return { user, initialized, allowRegistration, maxFileSize, maxFilesPerPackage, emailVerificationEnabled, chunkUploadsEnabled, chunkSize, init, login, register, logout };
 });

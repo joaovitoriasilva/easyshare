@@ -19,6 +19,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
+from app.core.utils import as_utc
 from app.models.models import User
 from app.schemas.schemas import (
     AuthConfig,
@@ -43,9 +44,7 @@ def _locked_until(user: User) -> datetime | None:
     """
     if user.locked_until is None:
         return None
-    expiry = user.locked_until
-    if expiry.tzinfo is None:
-        expiry = expiry.replace(tzinfo=UTC)
+    expiry = as_utc(user.locked_until)
     return expiry if expiry > datetime.now(UTC) else None
 
 
@@ -84,6 +83,8 @@ def auth_config() -> AuthConfig:
         max_file_size=settings.max_file_size,
         max_files_per_package=settings.max_files_per_package,
         email_verification_enabled=settings.email_verification_enabled,
+        chunk_uploads_enabled=True,
+        chunk_size=settings.chunk_size,
     )
 
 

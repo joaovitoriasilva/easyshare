@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { RouterLink, useRouter } from "vue-router";
-import { FileArchive, Plus, Search, Share2 } from "lucide-vue-next";
+import { FileArchive, Plus, Search, Share2, Upload } from "lucide-vue-next";
 import { authApi, packagesApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { PackageListItem, StorageUsage } from "@/api/types";
 import { formatBytes } from "@/lib/format";
 import { useToasts } from "@/composables/useToasts";
+import { useUploads } from "@/composables/useUploads";
+import { useAuthStore } from "@/stores/auth";
 import {
   Alert,
   Button,
@@ -22,6 +24,8 @@ import {
 
 const toast = useToasts();
 const router = useRouter();
+const auth = useAuthStore();
+const { startUploads } = useUploads();
 
 const packages = ref<PackageListItem[]>([]);
 const total = ref(0);
@@ -119,6 +123,58 @@ async function create(): Promise<void> {
   }
 }
 
+// --- Create-package-on-drop -------------------------------------------------
+// Dropping (or picking) files or a folder creates a package and starts the
+// uploads in one step, cutting the "create, open, then upload" flow down to a
+// single action. The uploads run in the module-level composable, so they keep
+// going as we navigate into the new package.
+const dragging = ref(false);
+const dropInput = ref<HTMLInputElement | null>(null);
+
+/** Name a dropped batch after its top-level folder, else a dated fallback. */
+function defaultPackageName(files: File[]): string {
+  const withPath = files.find((file) => file.webkitRelativePath);
+  const top = withPath?.webkitRelativePath.split("/")[0];
+  return top || `Upload ${new Date().toLocaleDateString()}`;
+}
+
+async function createFromFiles(files: File[]): Promise<void> {
+  if (files.length === 0 || creating.value) {
+    return;
+  }
+  const max = auth.maxFilesPerPackage;
+  if (max > 0 && files.length > max) {
+    toast.error(`A package can hold at most ${max} files.`);
+    return;
+  }
+  creating.value = true;
+  try {
+    const created = await packagesApi.create(defaultPackageName(files), null);
+    void startUploads(created.id, files, auth.maxFileSize, created.name);
+    toast.success(`Created "${created.name}" — uploading ${files.length} file(s)`);
+    await router.push({ name: "package", params: { id: created.id } });
+  } catch (err) {
+    toast.error(err instanceof ApiError ? err.message : "Failed to create package");
+  } finally {
+    creating.value = false;
+  }
+}
+
+function onDropCreate(event: DragEvent): void {
+  dragging.value = false;
+  const files = event.dataTransfer?.files;
+  if (files && files.length > 0) {
+    void createFromFiles(Array.from(files));
+  }
+}
+
+function onPickCreate(event: Event): void {
+  const target = event.target as HTMLInputElement;
+  const files = target.files ? Array.from(target.files) : [];
+  void createFromFiles(files);
+  target.value = "";
+}
+
 onMounted(() => {
   void load();
   void loadUsage();
@@ -135,6 +191,42 @@ onMounted(() => {
       <Button class="w-full sm:w-auto" @click="showForm = !showForm">
         <Plus class="h-4 w-4" /> New package
       </Button>
+    </div>
+
+    <input
+      ref="dropInput"
+      type="file"
+      multiple
+      class="hidden"
+      @change="onPickCreate"
+    />
+    <div
+      role="button"
+      tabindex="0"
+      aria-label="Create a package from files"
+      class="flex flex-col items-center justify-center rounded-md border border-dashed px-4 py-6 text-center transition-colors"
+      :class="[
+        dragging ? 'border-primary bg-primary/5' : 'border-input',
+        creating ? 'pointer-events-none opacity-60' : 'cursor-pointer hover:border-primary',
+      ]"
+      @click="dropInput?.click()"
+      @keydown.enter.prevent="dropInput?.click()"
+      @keydown.space.prevent="dropInput?.click()"
+      @dragover.prevent="dragging = true"
+      @dragenter.prevent="dragging = true"
+      @dragleave.prevent="dragging = false"
+      @drop.prevent="onDropCreate"
+    >
+      <div class="pointer-events-none flex flex-col items-center gap-1">
+        <Upload class="h-6 w-6 text-muted-foreground" />
+        <p class="text-sm">
+          <span class="font-medium text-primary">Drop files here</span>
+          to create a package
+        </p>
+        <p class="text-xs text-muted-foreground">
+          A new package is created and your files start uploading right away.
+        </p>
+      </div>
     </div>
 
     <Card v-if="usage">

@@ -14,6 +14,7 @@ from pwdlib import PasswordHash
 from pwdlib.hashers.argon2 import Argon2Hasher
 
 from app.core.config import settings
+from app.core.utils import normalize_email
 
 # Argon2id for password hashing: unlike bcrypt it has no 72-byte input limit and
 # is memory-hard. pwdlib also replaces passlib, which is unmaintained and stops
@@ -204,7 +205,7 @@ def hash_verification_code(share_id: int, email: str, code: str) -> str:
     share id and email so a hash can never be replayed against a different share
     or recipient. The plaintext code is never stored.
     """
-    message = f"{share_id}:{email.strip().lower()}:{code}".encode()
+    message = f"{share_id}:{normalize_email(email)}:{code}".encode()
     return hmac.new(
         settings.secret_key.encode(), message, hashlib.sha256
     ).hexdigest()

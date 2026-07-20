@@ -38,26 +38,55 @@ class MaxBodySizeMiddleware:
     Starlette spools the whole multipart body to a temporary file before a route
     (or its dependencies) runs, so an upload far larger than the per-file limit
     would otherwise touch disk before it could be refused. Rejecting up front on
-    the declared ``Content-Length`` avoids that. Requests without a
-    ``Content-Length`` (e.g. chunked transfer encoding) fall through to the
-    per-file streaming cap enforced while the upload is written.
+    the declared ``Content-Length`` avoids that. A ``multipart/form-data`` body
+    (a file upload) is allowed up to ``max_body_size``; a resumable-upload chunk
+    (``application/offset+octet-stream``) up to ``chunk_max_body_size``; every
+    other body (JSON and form APIs) is held to the much smaller
+    ``json_max_body_size`` so a tiny endpoint can't be made to buffer a huge
+    document in memory. Requests without a ``Content-Length`` (e.g. chunked
+    transfer encoding) fall through to the per-file streaming cap enforced while
+    the upload is written.
     """
 
-    def __init__(self, app: ASGIApp, max_body_size: int) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        max_body_size: int,
+        json_max_body_size: int | None = None,
+        chunk_max_body_size: int | None = None,
+    ) -> None:
         self.app = app
         self.max_body_size = max_body_size
+        # Default the JSON cap to the multipart cap so single-argument
+        # construction preserves the original single-limit behaviour.
+        self.json_max_body_size = (
+            json_max_body_size if json_max_body_size is not None else max_body_size
+        )
+        self.chunk_max_body_size = (
+            chunk_max_body_size if chunk_max_body_size is not None else max_body_size
+        )
+
+    def _cap_for(self, content_type: str) -> int:
+        """Return the size cap that applies to a body of ``content_type``."""
+        if content_type.startswith("multipart/form-data"):
+            return self.max_body_size
+        if content_type.startswith("application/offset+octet-stream"):
+            return self.chunk_max_body_size
+        return self.json_max_body_size
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        content_length = Headers(scope=scope).get("content-length")
+        headers = Headers(scope=scope)
+        content_length = headers.get("content-length")
         if content_length is not None:
+            cap = self._cap_for(headers.get("content-type", ""))
             try:
                 declared = int(content_length)
             except ValueError:
                 declared = -1
-            if declared > self.max_body_size:
+            if declared > cap:
                 response = JSONResponse(
                     {"detail": "Request body too large"},
                     status_code=413,

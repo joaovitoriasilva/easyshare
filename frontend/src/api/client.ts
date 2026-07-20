@@ -57,7 +57,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
  * anything else falls back to the supplied status text. Shared by the fetch and
  * XHR paths so error parsing lives in one place.
  */
-function buildApiError(
+export function buildApiError(
   status: number,
   fallbackMessage: string,
   body: string | null,

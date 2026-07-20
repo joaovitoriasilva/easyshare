@@ -20,6 +20,12 @@ vi.mock("@/composables/useToasts", () => ({
   }),
 }));
 
+// The composable reads chunk-upload settings from the auth store; stub it so the
+// test needs no Pinia and small files take the single-request path.
+vi.mock("@/stores/auth", () => ({
+  useAuthStore: () => ({ chunkUploadsEnabled: true, chunkSize: 8 * 1024 * 1024 }),
+}));
+
 import { useUploads } from "@/composables/useUploads";
 
 const makeFile = (name: string, bytes = "ab"): File => new File([bytes], name);

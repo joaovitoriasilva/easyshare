@@ -145,6 +145,11 @@ class AuthConfig(BaseModel):
     # Whether restricted shares require an emailed one-time code. When False the
     # frontend warns that allow-listed emails are accepted without verification.
     email_verification_enabled: bool
+    # Resumable chunked uploads: whether they are available and the chunk size
+    # the client should send. The frontend uses the chunked flow for files
+    # larger than one chunk so a dropped connection resumes instead of restarts.
+    chunk_uploads_enabled: bool = True
+    chunk_size: int = 8 * 1024 * 1024
 
 
 class StorageUsage(BaseModel):
@@ -241,6 +246,34 @@ class DownloadToken(BaseModel):
     """Short-lived token authorising a browser to stream an owner download."""
 
     token: str
+
+
+# --- Resumable chunked uploads ---------------------------------------------
+
+
+class UploadSessionCreate(BaseModel):
+    """Open a resumable upload: the client declares the file's name and size."""
+
+    filename: str = Field(min_length=1, max_length=255)
+    size: int = Field(ge=0)
+    content_type: str | None = Field(default=None, max_length=255)
+
+
+class UploadSessionRead(BaseModel):
+    """State of a resumable upload; ``offset`` is where the client resumes.
+
+    When ``complete`` is true the upload finished and ``file`` carries the
+    created package file. ``chunk_size`` is the size the server suggests the
+    client send per request.
+    """
+
+    upload_id: str
+    offset: int
+    size: int
+    filename: str
+    chunk_size: int
+    complete: bool = False
+    file: PackageFileRead | None = None
 
 
 # --- Shares ----------------------------------------------------------------

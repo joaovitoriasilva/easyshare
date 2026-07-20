@@ -3,6 +3,10 @@ import { ref } from "vue";
 import { Eye, EyeOff } from "lucide-vue-next";
 import Input from "./Input.vue";
 
+// Don't let fall-through attributes (e.g. aria-invalid) land on the wrapper
+// div; forward them to the inner <input> where they belong.
+defineOptions({ inheritAttrs: false });
+
 defineProps<{
   modelValue?: string;
   id?: string;
@@ -24,6 +28,7 @@ const visible = ref(false);
       :type="visible ? 'text' : 'password'"
       :placeholder="placeholder"
       class="pr-10"
+      v-bind="$attrs"
       @update:model-value="$emit('update:modelValue', $event)"
     />
     <button

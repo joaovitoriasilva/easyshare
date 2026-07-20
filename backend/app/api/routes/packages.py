@@ -29,7 +29,8 @@ from app.schemas.schemas import (
     PackageUpdate,
 )
 from app.services.archive import build_archive_download, validate_archive_request
-from app.services.quota import total_storage_used, user_storage_used
+from app.services.counters import counter_buffer
+from app.services.quota import remaining_upload_cap
 from app.services.storage import FileTooLargeError, storage
 from app.services.validation import sanitize_upload_filename
 
@@ -137,7 +138,9 @@ def get_package_stats(package: OwnedPackage, db: DbSession) -> PackageStats:
     the audit log. Per-file download counts are read straight from each file's
     denormalised ``download_count`` column (kept current on every share
     download), so the endpoint no longer scans and JSON-parses every download
-    event.
+    event. View and per-file download counters are accumulated in memory and
+    flushed to the database in batches, so the still-buffered delta is added
+    here to keep the numbers the owner sees near-real-time.
     """
     downloads_count, last_downloaded_at = db.execute(
         select(func.count(), func.max(AuditEvent.created_at)).where(
@@ -146,8 +149,11 @@ def get_package_stats(package: OwnedPackage, db: DbSession) -> PackageStats:
         )
     ).one()
     views = package.share.view_count if package.share is not None else 0
+    if package.share is not None:
+        views += counter_buffer.pending_view(package.share.id)
 
-    file_downloads = {
+    file_ids = [file.id for file in package.files]
+    persisted = {
         file_id: count
         for file_id, count in db.execute(
             select(PackageFile.id, PackageFile.download_count).where(
@@ -155,6 +161,12 @@ def get_package_stats(package: OwnedPackage, db: DbSession) -> PackageStats:
                 PackageFile.download_count > 0,
             )
         )
+    }
+    pending = counter_buffer.pending_downloads(file_ids)
+    file_downloads = {
+        file_id: total
+        for file_id in file_ids
+        if (total := persisted.get(file_id, 0) + pending.get(file_id, 0))
     }
     return PackageStats(
         views=views,
@@ -213,21 +225,7 @@ def upload_file(
     # enforced up front against the upload's known size (below) so a doomed
     # upload never touches the database or storage, and again as the streaming
     # ``max_bytes`` fallback for the rare client that streams without a size.
-    limits: list[tuple[int, str]] = [
-        (settings.max_file_size, "File exceeds the maximum allowed size")
-    ]
-    per_user_quota = package.owner.storage_quota
-    if per_user_quota > 0:
-        remaining_user = per_user_quota - user_storage_used(db, package.owner_id)
-        limits.append((remaining_user, "Upload would exceed your storage quota"))
-    if settings.storage_quota_total > 0:
-        remaining_total = settings.storage_quota_total - total_storage_used(
-            db, use_cache=True
-        )
-        limits.append(
-            (remaining_total, "Upload would exceed the server storage limit")
-        )
-    cap, cap_message = min(limits, key=lambda item: item[0])
+    cap, cap_message = remaining_upload_cap(db, package)
     # Reject before spending resources: bail out now — before creating the DB
     # row or writing any bytes — if the quota is already exhausted (cap <= 0) or
     # the upload's reported size already exceeds the cap. Starlette has counted

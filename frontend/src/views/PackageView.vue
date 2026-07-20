@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, type ComponentPublicInstance } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   ArrowLeft,
   Calendar,
   Download,
+  FolderUp,
   Pencil,
   QrCode as QrCodeIcon,
   RotateCw,
+  Share2,
   Trash2,
   Upload,
   X,
@@ -15,14 +17,16 @@ import {
 import { packagesApi, sharesApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { Package, PackageFile, PackageStats, Share, Visibility } from "@/api/types";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, formatRelativeTime } from "@/lib/format";
 import { downloadUrl } from "@/lib/download";
-import { copyText } from "@/lib/clipboard";
+import { copyText, shareOrCopy } from "@/lib/clipboard";
 import { fileIcon } from "@/lib/fileIcon";
 import { invalidEmails, parseEmailList } from "@/lib/validation";
 import { useToasts } from "@/composables/useToasts";
 import { useConfirm } from "@/composables/useConfirm";
 import { useUploads, type UploadItem } from "@/composables/useUploads";
+import { useArchiveDownload } from "@/composables/useArchiveDownload";
+import { setDocumentTitle } from "@/composables/useDocumentTitle";
 import { useAuthStore } from "@/stores/auth";
 import {
   Alert,
@@ -52,8 +56,8 @@ const share = ref<Share | null>(null);
 const stats = ref<PackageStats | null>(null);
 const error = ref<string | null>(null);
 const loading = ref(true);
-const downloadingAll = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
+const folderInput = ref<HTMLInputElement | null>(null);
 const dragging = ref(false);
 const showQr = ref(false);
 const qr = ref<InstanceType<typeof QrCode> | null>(null);
@@ -61,10 +65,21 @@ const qr = ref<InstanceType<typeof QrCode> | null>(null);
 // Upload state lives in a module-level composable, keyed by package id, so a
 // running upload's progress is preserved when the user leaves this package and
 // comes back to it.
-const { uploadsFor, isUploading, startUploads, cancelUpload, retryUpload, dismissUpload } =
+const { uploadsFor, isUploading, startUploads, cancelUpload, retryUpload, dismissUpload, bindUploaded } =
   useUploads();
 const uploads = uploadsFor(packageId);
 const uploading = isUploading(packageId);
+
+// Archive (zip) download of the whole package (or a selection) with an in-app
+// progress read-out; falls back to a native browser download when too large to
+// stream in memory.
+const {
+  downloading: archiving,
+  percent: archivePercent,
+  indeterminate: archiveIndeterminate,
+  start: startArchive,
+  cancel: cancelArchive,
+} = useArchiveDownload();
 
 // Aggregate progress across the current batch, for the summary bar above the
 // per-file rows.
@@ -151,6 +166,9 @@ const expiryLabel = computed(() => {
   return iso ? new Date(iso).toLocaleString() : null;
 });
 
+// Human-friendly "in 3 days" / "2 hours ago" phrasing for the share expiry.
+const expiryRelative = computed(() => formatRelativeTime(share.value?.expires_at));
+
 // Warn owners that, without email verification configured, a restricted share
 // admits anyone who knows an allow-listed address (no proof of ownership).
 const showUnverifiedRestrictedWarning = computed(
@@ -199,6 +217,7 @@ async function load(): Promise<void> {
   error.value = null;
   try {
     pkg.value = await packagesApi.get(packageId);
+    setDocumentTitle(pkg.value.name, pkg.value.description ?? undefined);
     try {
       share.value = await sharesApi.get(packageId);
       visibility.value = share.value.visibility;
@@ -294,7 +313,13 @@ function runUploads(files: File[]): void {
     );
     return;
   }
-  void startUploads(packageId, files, auth.maxFileSize, pkg.value?.name ?? "");
+  void startUploads(
+    packageId,
+    files,
+    auth.maxFileSize,
+    pkg.value?.name ?? "",
+    appendUploadedFile,
+  );
 }
 
 function onUpload(event: Event): void {
@@ -302,6 +327,30 @@ function onUpload(event: Event): void {
   const files = target.files ? Array.from(target.files) : [];
   runUploads(files);
   target.value = "";
+}
+
+// Folder picker: browsers expose every file under the chosen directory via the
+// same FileList. Names are flattened server-side (the stored filename keeps the
+// leaf name), so a whole folder can be added in one action.
+function onFolderUpload(event: Event): void {
+  const target = event.target as HTMLInputElement;
+  const files = target.files ? Array.from(target.files) : [];
+  runUploads(files);
+  target.value = "";
+}
+
+// `webkitdirectory` / `directory` are not standard, typed input attributes, so
+// set them imperatively on the element via a function ref (which also captures
+// the ref used to open the picker).
+function setFolderInput(
+  el: Element | ComponentPublicInstance | null,
+): void {
+  const input = el instanceof HTMLInputElement ? el : null;
+  folderInput.value = input;
+  if (input) {
+    input.setAttribute("webkitdirectory", "");
+    input.setAttribute("directory", "");
+  }
 }
 
 function onDrop(event: DragEvent): void {
@@ -312,21 +361,18 @@ function onDrop(event: DragEvent): void {
   }
 }
 
-// Refresh the file list once an upload batch finishes. A watcher (rather than
-// awaiting the upload) means the view still updates even if it was unmounted
-// while the upload ran and then remounted before it completed.
-watch(uploading, (active, wasActive) => {
-  if (wasActive && !active) {
-    packagesApi
-      .get(packageId)
-      .then((value) => {
-        pkg.value = value;
-      })
-      .catch(() => {
-        /* a subsequent load() will surface any real error */
-      });
+/**
+ * Append a just-uploaded file to the list in place (optimistic), skipping any
+ * duplicate id. Used as the upload callback so a finished file appears
+ * immediately instead of refetching the whole package after the batch.
+ */
+function appendUploadedFile(file: PackageFile): void {
+  const current = pkg.value;
+  if (!current || current.files.some((existing) => existing.id === file.id)) {
+    return;
   }
-});
+  current.files = [...current.files, file];
+}
 
 /**
  * Optimistically apply `mutate` to the current file list, run `apiCall`, and on
@@ -444,18 +490,40 @@ function downloadOwned(fileId: number, filename: string): void {
   );
 }
 
+/** Fetch a one-shot token, then stream the zip with an in-app progress bar. */
+async function ownerArchiveDownload(
+  estimatedBytes: number,
+  ids: number[],
+): Promise<void> {
+  try {
+    const { token } = await packagesApi.downloadToken(packageId);
+    const url = packagesApi.downloadAllUrl(
+      packageId,
+      token,
+      ids.length > 0 ? ids : undefined,
+    );
+    const outcome = await startArchive(
+      url,
+      `${pkg.value?.name ?? "package"}.zip`,
+      estimatedBytes,
+    );
+    if (outcome === "fell-back") {
+      toast.info("Download started");
+    }
+  } catch {
+    toast.error("Failed to download files");
+  }
+}
+
 async function downloadAllOwned(): Promise<void> {
-  if (!pkg.value?.files.length) {
+  const files = pkg.value?.files ?? [];
+  if (files.length === 0) {
     return;
   }
-  const name = pkg.value.name;
-  downloadingAll.value = true;
-  await triggerDownload(
-    (token) => packagesApi.downloadAllUrl(packageId, token),
-    `${name}.zip`,
-    "Failed to download files",
+  await ownerArchiveDownload(
+    files.reduce((sum, file) => sum + file.size, 0),
+    [],
   );
-  downloadingAll.value = false;
 }
 
 function downloadSelectedOwned(): void {
@@ -463,12 +531,10 @@ function downloadSelectedOwned(): void {
   if (ids.length === 0) {
     return;
   }
-  const name = pkg.value?.name ?? "package";
-  void triggerDownload(
-    (token) => packagesApi.downloadAllUrl(packageId, token, ids),
-    `${name}.zip`,
-    "Failed to download files",
-  );
+  const bytes = (pkg.value?.files ?? [])
+    .filter((file) => selectedFiles.value.has(file.id))
+    .reduce((sum, file) => sum + file.size, 0);
+  void ownerArchiveDownload(bytes, ids);
 }
 
 async function enableSharing(): Promise<void> {
@@ -558,6 +624,21 @@ async function copyLink(): Promise<void> {
   }
 }
 
+// Offer the OS share sheet on mobile (Web Share API) and fall back to copying
+// the link on desktop browsers that don't support it.
+async function sharePackage(): Promise<void> {
+  const result = await shareOrCopy({
+    url: shareLink.value,
+    title: pkg.value?.name,
+    text: pkg.value ? `Files shared with you: ${pkg.value.name}` : undefined,
+  });
+  if (result === "copied") {
+    toast.success("Link copied to clipboard");
+  } else if (result === "failed") {
+    toast.error("Couldn't share the link");
+  }
+}
+
 async function downloadQr(): Promise<void> {
   const base = pkg.value?.name?.trim() || "share";
   try {
@@ -567,7 +648,13 @@ async function downloadQr(): Promise<void> {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  void load();
+  // Re-attach the optimistic-append callback so a view that was navigated away
+  // from and back to mid-upload still reflects files finished by the running
+  // batch (which was started with the previous instance's callback).
+  bindUploaded(packageId, appendUploadedFile);
+});
 </script>
 
 <template>
@@ -653,6 +740,15 @@ onMounted(load);
               class="hidden"
               @change="onUpload"
             />
+            <!-- webkitdirectory is set imperatively (not a standard typed
+                 attribute) so a whole folder can be selected at once. -->
+            <input
+              :ref="setFolderInput"
+              type="file"
+              multiple
+              class="hidden"
+              @change="onFolderUpload"
+            />
 
             <div
               role="button"
@@ -683,6 +779,17 @@ onMounted(load);
                   Up to {{ formatBytes(auth.maxFileSize) }} per file
                 </p>
               </div>
+            </div>
+
+            <div class="flex justify-center">
+              <Button
+                variant="ghost"
+                size="sm"
+                :disabled="uploading"
+                @click="folderInput?.click()"
+              >
+                <FolderUp class="h-4 w-4" /> Upload a folder
+              </Button>
             </div>
 
             <div v-if="uploadSummary" class="space-y-1.5">
@@ -784,23 +891,56 @@ onMounted(load);
               <div class="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
-                  :disabled="downloadingAll"
+                  :disabled="archiving"
                   @click="downloadAllOwned"
                 >
                   <Download class="h-4 w-4" />
-                  {{ downloadingAll ? "Preparing..." : "Download all" }}
+                  {{ archiving ? "Preparing…" : "Download all" }}
                 </Button>
-                <Button variant="destructive" @click="removeAllFiles">
+                <Button variant="destructive" :disabled="archiving" @click="removeAllFiles">
                   <Trash2 class="h-4 w-4" /> Delete all
                 </Button>
                 <template v-if="hasFileSelection">
-                  <Button variant="secondary" @click="downloadSelectedOwned">
+                  <Button variant="secondary" :disabled="archiving" @click="downloadSelectedOwned">
                     <Download class="h-4 w-4" /> Download {{ selectedFiles.size }} selected
                   </Button>
-                  <Button variant="destructive" @click="deleteSelectedFiles">
+                  <Button variant="destructive" :disabled="archiving" @click="deleteSelectedFiles">
                     <Trash2 class="h-4 w-4" /> Delete {{ selectedFiles.size }} selected
                   </Button>
                 </template>
+              </div>
+
+              <div v-if="archiving" class="space-y-1">
+                <div class="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Preparing download…</span>
+                  <div class="flex items-center gap-2">
+                    <span v-if="archivePercent !== null" class="tabular-nums">
+                      {{ archivePercent }}%
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      class="h-6 px-2 text-xs"
+                      @click="cancelArchive"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+                <div
+                  class="h-1.5 overflow-hidden rounded-full bg-muted"
+                  role="progressbar"
+                  :aria-valuenow="archivePercent ?? undefined"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-label="Preparing archive download"
+                >
+                  <div
+                    class="h-full rounded-full bg-primary transition-[width]"
+                    :class="archiveIndeterminate ? 'w-1/3 animate-pulse' : ''"
+                    :style="archiveIndeterminate ? undefined : { width: `${archivePercent ?? 0}%` }"
+                  />
+                </div>
               </div>
 
               <div class="flex flex-col gap-2 sm:flex-row">
@@ -962,7 +1102,10 @@ onMounted(load);
                 <Label for="link">Share link</Label>
                 <div class="flex gap-2">
                   <Input id="link" :model-value="shareLink" class="min-w-0" readonly />
-                  <Button variant="secondary" @click="copyLink">
+                  <Button variant="secondary" class="shrink-0 gap-1.5" @click="sharePackage">
+                    <Share2 class="h-4 w-4" /> Share
+                  </Button>
+                  <Button variant="outline" class="shrink-0" @click="copyLink">
                     Copy
                   </Button>
                 </div>
@@ -1002,11 +1145,12 @@ onMounted(load);
                 </p>
                 <p
                   v-if="expiryLabel"
-                  class="flex items-center gap-1 text-xs"
+                  class="flex flex-wrap items-center gap-1 text-xs"
                   :class="shareExpired ? 'text-destructive' : 'text-muted-foreground'"
                 >
                   <Calendar class="h-3 w-3" />
-                  {{ shareExpired ? `Expired ${expiryLabel}` : `Expires ${expiryLabel}` }}
+                  <span>{{ shareExpired ? "Expired" : "Expires" }} {{ expiryRelative }}</span>
+                  <span class="text-muted-foreground">· {{ expiryLabel }}</span>
                 </p>
                 <p v-if="lastDownloaded" class="text-xs text-muted-foreground">
                   Last downloaded {{ lastDownloaded }}

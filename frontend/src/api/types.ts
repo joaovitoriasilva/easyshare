@@ -9,6 +9,9 @@ export interface AuthConfig {
   // Whether restricted shares require an emailed one-time code. When false the
   // UI warns that allow-listed emails are accepted without verification.
   email_verification_enabled: boolean;
+  // Resumable chunked uploads: whether available and the chunk size to send.
+  chunk_uploads_enabled: boolean;
+  chunk_size: number;
 }
 
 export interface StorageUsage {
@@ -78,6 +81,17 @@ export interface PackagePage {
 
 export interface DownloadToken {
   token: string;
+}
+
+/** State of a resumable chunked upload session. */
+export interface UploadSession {
+  upload_id: string;
+  offset: number;
+  size: number;
+  filename: string;
+  chunk_size: number;
+  complete: boolean;
+  file: PackageFile | null;
 }
 
 export interface Share {

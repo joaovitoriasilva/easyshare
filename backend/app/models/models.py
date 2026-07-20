@@ -200,6 +200,40 @@ class ShareAccessCode(Base):
     share: Mapped[Share] = relationship(back_populates="access_codes")
 
 
+class UploadSession(Base):
+    """A resumable, chunked upload in progress for a package.
+
+    Chunks are appended to a server-side scratch file; ``received`` is the
+    authoritative byte offset a client resumes from after a dropped connection
+    or a page reload. The row and its scratch file are removed on completion, on
+    an explicit abort, or by a background sweep once older than the configured
+    TTL, so an abandoned upload cannot leak disk indefinitely.
+    """
+
+    __tablename__ = "upload_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Opaque, unguessable id handed to the client (never the sequential row id),
+    # so one user cannot probe another's in-progress uploads.
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    package_id: Mapped[int] = mapped_column(
+        ForeignKey("packages.id", ondelete="CASCADE"), index=True
+    )
+    filename: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str] = mapped_column(
+        String(255), default="application/octet-stream"
+    )
+    total_size: Mapped[int] = mapped_column(BigInteger)
+    received: Mapped[int] = mapped_column(BigInteger, default=0)
+    scratch_key: Mapped[str] = mapped_column(String(255), unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+
 class AuditEvent(Base):
     """An append-only record of a security-relevant action."""
 

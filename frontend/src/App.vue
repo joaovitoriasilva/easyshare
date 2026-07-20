@@ -6,6 +6,7 @@ import { useAuthStore } from "@/stores/auth";
 import { Button, Toaster, ConfirmDialog, NavigationProgress } from "@/components/ui";
 import ThemeToggle from "@/components/ThemeToggle.vue";
 import UploadIndicator from "@/components/UploadIndicator.vue";
+import { routeAnnouncement } from "@/composables/useDocumentTitle";
 
 const auth = useAuthStore();
 const router = useRouter();
@@ -34,6 +35,9 @@ function logout(): void {
 <template>
   <div class="flex min-h-screen flex-col bg-background">
     <NavigationProgress />
+    <!-- Announces the current page to assistive tech after a client-side
+         navigation, which otherwise produces no announcement. -->
+    <div class="sr-only" role="status" aria-live="polite">{{ routeAnnouncement }}</div>
     <a
       href="#main-content"
       class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-3 focus:z-[300] focus:rounded-md focus:bg-background focus:px-3 focus:py-2 focus:text-sm focus:shadow focus:ring-2 focus:ring-ring"
@@ -167,7 +171,7 @@ function logout(): void {
           <Package2 class="h-4 w-4" />
           EasyShare
         </span>
-        <span>{{ yearRange }} • v0.3.0</span>
+        <span>{{ yearRange }} • v0.4.0</span>
       </div>
     </footer>
     <Toaster />

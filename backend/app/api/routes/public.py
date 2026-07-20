@@ -14,7 +14,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import Response, StreamingResponse
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import DbSession
@@ -28,6 +28,7 @@ from app.core.security import (
     hash_verification_code,
     verify_verification_code,
 )
+from app.core.utils import as_utc, normalize_email
 from app.models.models import (
     Package,
     PackageFile,
@@ -42,6 +43,7 @@ from app.schemas.schemas import (
     ShareVerifyRequest,
 )
 from app.services.archive import build_archive_download, validate_archive_request
+from app.services.counters import counter_buffer
 from app.services.email import send_share_verification_code
 from app.services.storage import storage
 
@@ -67,26 +69,17 @@ def _get_active_share(db: DbSession, token: str) -> Share:
     return share
 
 
-def _as_utc(value: datetime) -> datetime:
-    """Interpret a possibly-naive stored datetime as UTC.
-
-    SQLite returns naive datetimes; treating a stored value as UTC keeps
-    comparisons against an aware ``now`` from raising.
-    """
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-
-
 def _is_expired(share: Share) -> bool:
     """Return whether a share has passed its optional expiry time."""
     if share.expires_at is None:
         return False
-    return _as_utc(share.expires_at) <= datetime.now(UTC)
+    return as_utc(share.expires_at) <= datetime.now(UTC)
 
 
 def _email_allowed(share: Share, email: str) -> bool:
     """Return whether ``email`` is on a restricted share's allow-list."""
     allowed = {entry.email for entry in share.allowed_emails}
-    return email.strip().lower() in allowed
+    return normalize_email(email) in allowed
 
 
 def _authorize_email(share: Share, email: str | None) -> None:
@@ -172,16 +165,16 @@ def view_share(token: str, db: DbSession, request: Request) -> PublicShareRead:
 
     Each view bumps a denormalised counter on the share rather than writing an
     audit row, so a heavily crawled or refreshed public link cannot amplify into
-    unbounded audit-table writes. The endpoint is also rate-limited.
+    unbounded audit-table writes. The increment is buffered in process memory
+    and flushed in coalesced batches by a background task, so a viral link does
+    not serialise a per-hit ``UPDATE`` + commit on the single share row. The
+    endpoint is also rate-limited.
     """
     share = _get_active_share(db, token)
     response = _public_share_read(
         share, reveal_files=share.visibility != ShareVisibility.RESTRICTED
     )
-    db.execute(
-        update(Share).where(Share.id == share.id).values(view_count=Share.view_count + 1)
-    )
-    db.commit()
+    counter_buffer.add_view(share.id)
     return response
 
 
@@ -204,7 +197,7 @@ def _issue_verification_code(
     than holding a worker thread while the client waits. The plaintext is
     emailed but only its keyed hash is stored.
     """
-    normalized = email.strip().lower()
+    normalized = normalize_email(email)
     code = generate_verification_code()
     code_hash = hash_verification_code(share.id, normalized, code)
     expires = datetime.now(UTC) + timedelta(
@@ -247,7 +240,7 @@ def _consume_verification_code(
     A correct code is single-use (deleted on success). Expired codes and codes
     that exhaust the attempt budget are discarded so they cannot be retried.
     """
-    normalized = email.strip().lower()
+    normalized = normalize_email(email)
     record = db.scalar(
         select(ShareAccessCode).where(
             ShareAccessCode.share_id == share.id,
@@ -256,7 +249,7 @@ def _consume_verification_code(
     )
     if record is None:
         return False
-    if _as_utc(record.expires_at) <= datetime.now(UTC) or (
+    if as_utc(record.expires_at) <= datetime.now(UTC) or (
         record.attempts >= settings.share_verification_max_attempts
     ):
         db.delete(record)
@@ -337,7 +330,7 @@ def access_share(
         package_id=share.package_id,
     )
     download_token = (
-        create_share_access_token(share.token, email.strip().lower())
+        create_share_access_token(share.token, normalize_email(email))
         if share.visibility == ShareVisibility.RESTRICTED
         else None
     )
@@ -386,7 +379,7 @@ def verify_share(
         package_id=share.package_id,
         detail={"via": "code"},
     )
-    download_token = create_share_access_token(share.token, email.strip().lower())
+    download_token = create_share_access_token(share.token, normalize_email(email))
     return _public_share_read(share, reveal_files=True, download_token=download_token)
 
 
@@ -423,21 +416,6 @@ def _authorize_download_or_deny(
         raise
 
 
-def _increment_download_counts(db: DbSession, file_ids: list[int]) -> None:
-    """Bump the denormalised download counter for ``file_ids`` and commit.
-
-    Shared by the single-file and archive download routes. The commit expires
-    the ORM instances, so callers capture any attributes they still need
-    (filenames, storage keys) before calling.
-    """
-    db.execute(
-        update(PackageFile)
-        .where(PackageFile.id.in_(file_ids))
-        .values(download_count=PackageFile.download_count + 1)
-    )
-    db.commit()
-
-
 @router.get("/{token}/files/{file_id}/download")
 @limiter.limit(DOWNLOAD)
 def download_shared_file(
@@ -453,12 +431,13 @@ def download_shared_file(
         share, access, request, denied_detail={"file_id": file_id}
     )
     record = _resolve_file(share, file_id)
-    # Capture attributes before the counter commit expires the ORM instance.
     filename = record.filename
     storage_key = record.storage_key
     content_type = record.content_type
     package_id = share.package_id
-    _increment_download_counts(db, [record.id])
+    # Buffer the download count in memory (flushed in coalesced batches) instead
+    # of an UPDATE + commit on the file row per hit.
+    counter_buffer.add_downloads([record.id])
     record_event(
         "share.download",
         request=request,
@@ -484,9 +463,10 @@ def download_shared_archive(
     """Download all files, or a selected subset, as a zip archive.
 
     Recipients may pass ``file_ids`` repeatedly to select specific files;
-    when omitted, every file in the package is included. The archive is written
-    to a temporary file (spilling to disk instead of buffering the whole zip in
-    memory) and streamed back, then removed once the response is sent.
+    when omitted, every file in the package is included. The archive is streamed
+    incrementally, so it is never buffered in full, and the per-file download
+    count is bumped only once the archive has finished streaming (a client that
+    disconnects part-way is not counted).
     """
     share = _get_active_share(db, token)
     email = _authorize_download_or_deny(share, access, request)
@@ -500,12 +480,15 @@ def download_shared_archive(
         selected, empty_detail="No matching files to download"
     )
 
-    # Build while the ORM instances are still fresh (before the counter commit
-    # expires them), then record the download.
+    # Snapshot ids while the ORM instances are fresh; the download is counted by
+    # the archive builder's on-complete hook once the stream actually finishes.
     selected_ids = [file.id for file in selected]
     package_id = share.package_id
-    response = build_archive_download(selected, package_name=share.package.name)
-    _increment_download_counts(db, selected_ids)
+    response = build_archive_download(
+        selected,
+        package_name=share.package.name,
+        on_complete=lambda: counter_buffer.add_downloads(selected_ids),
+    )
     record_event(
         "share.download",
         request=request,

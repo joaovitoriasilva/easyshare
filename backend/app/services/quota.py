@@ -18,6 +18,7 @@ import time
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.models import Package, PackageFile
 
 # How long a scanned instance-wide total may be reused before rescanning.
@@ -61,3 +62,28 @@ def total_storage_used(db: Session, *, use_cache: bool = False) -> int:
 def reset_total_usage_cache() -> None:
     """Clear the cached instance total (used between tests)."""
     _total_usage_cache.clear()
+
+
+def remaining_upload_cap(db: Session, package: Package) -> tuple[int, str]:
+    """Return the smallest applicable write cap (bytes) and its error message.
+
+    The effective cap is the least of the per-file limit and any remaining
+    per-user / instance-wide quota (0 = unlimited). Shared by the single-shot
+    upload and the resumable chunked upload so the limit rules live in one place.
+    A non-positive cap means the quota is already exhausted.
+    """
+    limits: list[tuple[int, str]] = [
+        (settings.max_file_size, "File exceeds the maximum allowed size")
+    ]
+    per_user_quota = package.owner.storage_quota
+    if per_user_quota > 0:
+        remaining_user = per_user_quota - user_storage_used(db, package.owner_id)
+        limits.append((remaining_user, "Upload would exceed your storage quota"))
+    if settings.storage_quota_total > 0:
+        remaining_total = settings.storage_quota_total - total_storage_used(
+            db, use_cache=True
+        )
+        limits.append(
+            (remaining_total, "Upload would exceed the server storage limit")
+        )
+    return min(limits, key=lambda item: item[0])

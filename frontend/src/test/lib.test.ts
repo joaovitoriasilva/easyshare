@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 describe("formatBytes", () => {
@@ -31,5 +31,24 @@ describe("cn", () => {
 
   it("ignores falsy values", () => {
     expect(cn("a", false, null, undefined, "b")).toBe("a b");
+  });
+});
+
+describe("formatRelativeTime", () => {
+  it("returns an empty string for missing or invalid values", () => {
+    expect(formatRelativeTime(null)).toBe("");
+    expect(formatRelativeTime(undefined)).toBe("");
+    expect(formatRelativeTime("not-a-date")).toBe("");
+  });
+
+  it("phrases a future time as 'in ...'", () => {
+    const future = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+    expect(formatRelativeTime(future)).toContain("in 3 day");
+  });
+
+  it("phrases a past time as '... ago'", () => {
+    const past = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    expect(formatRelativeTime(past)).toContain("hour");
+    expect(formatRelativeTime(past)).toContain("ago");
   });
 });

@@ -7,6 +7,7 @@ import type {
   BulkQuotaResult,
   DownloadToken,
   Package,
+  PackageFile,
   PackagePage,
   PackageStats,
   PublicShare,
@@ -95,8 +96,11 @@ export const packagesApi = {
     file: File,
     onProgress?: (fraction: number) => void,
     signal?: AbortSignal,
-  ): Promise<void> {
-    return api.upload<void>(`/packages/${id}/files`, file, { onProgress, signal });
+  ): Promise<PackageFile> {
+    return api.upload<PackageFile>(`/packages/${id}/files`, file, {
+      onProgress,
+      signal,
+    });
   },
   removeFile(packageId: number, fileId: number): Promise<void> {
     return api.request<void>(`/packages/${packageId}/files/${fileId}`, {

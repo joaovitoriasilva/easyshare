@@ -12,6 +12,8 @@ from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.db.session import Base
 from app.main import app
+from app.services import chunked as chunked_module
+from app.services import counters as counters_module
 from app.services import storage as storage_module
 from app.services.quota import reset_total_usage_cache
 from fastapi.testclient import TestClient
@@ -28,6 +30,12 @@ limiter.enabled = False
 # database concurrently with test requests. The pruning logic is covered
 # directly in test_audit.py.
 settings.audit_retention_days = 0
+
+# Keep the counter-flush background loop out of tests too: with the loop
+# disabled, buffered view/download increments stay in memory and are surfaced by
+# the stats endpoint (which adds the pending delta), so counting is deterministic
+# without a timing-dependent flush racing the assertions.
+settings.counter_flush_interval_seconds = 0
 
 
 @pytest.fixture
@@ -58,13 +66,26 @@ def db_sessionmaker(tmp_path: Path) -> Generator[sessionmaker]:
     # Redirect file storage to a temporary directory for isolation.
     storage_module.storage.base_dir = tmp_path / "storage"
     storage_module.storage.base_dir.mkdir(parents=True, exist_ok=True)
+    # Isolate the resumable-upload scratch area and point its prune sweep at the
+    # test engine.
+    chunked_module.scratch_dir = tmp_path / "incoming"
+    original_prune_sessionmaker = chunked_module.prune_sessionmaker
+    chunked_module.prune_sessionmaker = TestingSessionLocal
 
     original_audit_sessionmaker = audit_module.audit_sessionmaker
     audit_module.audit_sessionmaker = TestingSessionLocal
+    # Point counter flushing at the isolated engine and start from a clean
+    # buffer so a previous test's pending deltas can't leak into this one.
+    original_counter_sessionmaker = counters_module.counter_sessionmaker
+    counters_module.counter_sessionmaker = TestingSessionLocal
+    counters_module.counter_buffer.reset()
     app.dependency_overrides[get_db] = override_get_db
     yield TestingSessionLocal
     app.dependency_overrides.clear()
     audit_module.audit_sessionmaker = original_audit_sessionmaker
+    counters_module.counter_sessionmaker = original_counter_sessionmaker
+    counters_module.counter_buffer.reset()
+    chunked_module.prune_sessionmaker = original_prune_sessionmaker
     Base.metadata.drop_all(bind=engine)
 
 

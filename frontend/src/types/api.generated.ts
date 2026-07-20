@@ -537,7 +537,9 @@ export interface paths {
          *     the audit log. Per-file download counts are read straight from each file's
          *     denormalised ``download_count`` column (kept current on every share
          *     download), so the endpoint no longer scans and JSON-parses every download
-         *     event.
+         *     event. View and per-file download counters are accumulated in memory and
+         *     flushed to the database in batches, so the still-buffered delta is added
+         *     here to keep the numbers the owner sees near-real-time.
          */
         get: operations["get_package_stats_api_packages__package_id__stats_get"];
         put?: never;
@@ -546,6 +548,63 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/packages/{package_id}/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Upload
+         * @description Open a resumable upload, validating the declared size against the caps.
+         */
+        post: operations["create_upload_api_packages__package_id__uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/packages/{package_id}/uploads/{upload_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Upload
+         * @description Return the current offset so a client can resume an interrupted upload.
+         *
+         *     Reconciles ``received`` with the scratch file's actual length in case a
+         *     crash lost the last offset update, so the client is never told to resume
+         *     past what is truly on disk.
+         */
+        get: operations["get_upload_api_packages__package_id__uploads__upload_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Abort Upload
+         * @description Abort an in-progress upload, discarding its scratch file.
+         */
+        delete: operations["abort_upload_api_packages__package_id__uploads__upload_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Upload Chunk
+         * @description Append one chunk at ``Upload-Offset``; finalize when the file is complete.
+         *
+         *     The offset must equal the session's current received length (so a retried or
+         *     out-of-order chunk cannot corrupt the file), and the chunk must not push the
+         *     total past the declared size. On the final chunk the assembled file is moved
+         *     into storage and its ``PackageFile`` is returned with ``complete: true``.
+         */
+        patch: operations["upload_chunk_api_packages__package_id__uploads__upload_id__patch"];
         trace?: never;
     };
     "/api/ready": {
@@ -581,7 +640,10 @@ export interface paths {
          *
          *     Each view bumps a denormalised counter on the share rather than writing an
          *     audit row, so a heavily crawled or refreshed public link cannot amplify into
-         *     unbounded audit-table writes. The endpoint is also rate-limited.
+         *     unbounded audit-table writes. The increment is buffered in process memory
+         *     and flushed in coalesced batches by a background task, so a viral link does
+         *     not serialise a per-hit ``UPDATE`` + commit on the single share row. The
+         *     endpoint is also rate-limited.
          */
         get: operations["view_share_api_s__token__get"];
         put?: never;
@@ -632,9 +694,10 @@ export interface paths {
          * @description Download all files, or a selected subset, as a zip archive.
          *
          *     Recipients may pass ``file_ids`` repeatedly to select specific files;
-         *     when omitted, every file in the package is included. The archive is written
-         *     to a temporary file (spilling to disk instead of buffering the whole zip in
-         *     memory) and streamed back, then removed once the response is sent.
+         *     when omitted, every file in the package is included. The archive is streamed
+         *     incrementally, so it is never buffered in full, and the per-file download
+         *     count is bumped only once the archive has finished streaming (a client that
+         *     disconnects part-way is not counted).
          */
         get: operations["download_shared_archive_api_s__token__download_get"];
         put?: never;
@@ -768,6 +831,16 @@ export interface components {
         AuthConfig: {
             /** Allow Registration */
             allow_registration: boolean;
+            /**
+             * Chunk Size
+             * @default 8388608
+             */
+            chunk_size: number;
+            /**
+             * Chunk Uploads Enabled
+             * @default true
+             */
+            chunk_uploads_enabled: boolean;
             /** Email Verification Enabled */
             email_verification_enabled: boolean;
             /** Max File Size */
@@ -1168,6 +1241,44 @@ export interface components {
              * @default bearer
              */
             token_type: string;
+        };
+        /**
+         * UploadSessionCreate
+         * @description Open a resumable upload: the client declares the file's name and size.
+         */
+        UploadSessionCreate: {
+            /** Content Type */
+            content_type?: string | null;
+            /** Filename */
+            filename: string;
+            /** Size */
+            size: number;
+        };
+        /**
+         * UploadSessionRead
+         * @description State of a resumable upload; ``offset`` is where the client resumes.
+         *
+         *     When ``complete`` is true the upload finished and ``file`` carries the
+         *     created package file. ``chunk_size`` is the size the server suggests the
+         *     client send per request.
+         */
+        UploadSessionRead: {
+            /** Chunk Size */
+            chunk_size: number;
+            /**
+             * Complete
+             * @default false
+             */
+            complete: boolean;
+            file?: components["schemas"]["PackageFileRead"] | null;
+            /** Filename */
+            filename: string;
+            /** Offset */
+            offset: number;
+            /** Size */
+            size: number;
+            /** Upload Id */
+            upload_id: string;
         };
         /** UserAdminUpdate */
         UserAdminUpdate: {
@@ -2198,6 +2309,139 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PackageStats"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_upload_api_packages__package_id__uploads_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                package_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UploadSessionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadSessionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_upload_api_packages__package_id__uploads__upload_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+                package_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadSessionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    abort_upload_api_packages__package_id__uploads__upload_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+                package_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_chunk_api_packages__package_id__uploads__upload_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+                package_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/offset+octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadSessionRead"];
                 };
             };
             /** @description Validation Error */

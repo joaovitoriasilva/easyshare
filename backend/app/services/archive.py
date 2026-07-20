@@ -10,9 +10,10 @@ memory or on disk) and no worker thread is held for the whole download.
 from __future__ import annotations
 
 import contextlib
+import logging
 import threading
 import zipfile
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from typing import BinaryIO, cast
 
 from fastapi import HTTPException, status
@@ -21,6 +22,8 @@ from fastapi.responses import StreamingResponse
 from app.core.config import settings
 from app.models.models import PackageFile
 from app.services.storage import content_disposition_attachment, storage
+
+logger = logging.getLogger("easyshare.archive")
 
 # Stream each stored file a chunk at a time so a large archive is never held in
 # memory (or on disk) in full.
@@ -152,21 +155,36 @@ def _iter_archive_bytes(entries: list[tuple[str, str]]) -> Iterator[bytes]:
         yield chunk
 
 
-def _stream_with_release(entries: list[tuple[str, str]]) -> Iterator[bytes]:
+def _stream_with_release(
+    entries: list[tuple[str, str]], on_complete: Callable[[], None] | None
+) -> Iterator[bytes]:
     """Stream the archive, releasing the concurrency slot when it finishes.
 
     The slot is acquired before this generator starts and released here on every
     exit path — normal completion, an error mid-stream, or the generator being
-    closed early because the client disconnected.
+    closed early because the client disconnected. ``on_complete`` runs only when
+    the whole archive streamed successfully: a client that disconnects part-way
+    raises ``GeneratorExit`` at the paused ``yield``, so ``completed`` stays
+    ``False`` and an aborted download is never counted.
     """
+    completed = False
     try:
         yield from _iter_archive_bytes(entries)
+        completed = True
     finally:
         _build_semaphore.release()
+        if completed and on_complete is not None:
+            try:
+                on_complete()
+            except Exception:  # a stats callback must never break the response
+                logger.exception("archive.on_complete_failed")
 
 
 def build_archive_download(
-    files: Iterable[PackageFile], *, package_name: str
+    files: Iterable[PackageFile],
+    *,
+    package_name: str,
+    on_complete: Callable[[], None] | None = None,
 ) -> StreamingResponse:
     """Stream ``files`` as a zip archive.
 
@@ -176,6 +194,10 @@ def build_archive_download(
     concurrently; past the cap the request is rejected with 503 rather than
     piling more simultaneous storage reads onto the service. The slot is
     released when the stream completes (see :func:`_stream_with_release`).
+
+    ``on_complete`` (if given) runs once the archive has streamed in full, so a
+    caller can count the download only when it actually finished rather than when
+    it was merely requested.
     """
     # Snapshot the attributes the stream needs while the ORM instances are still
     # attached to a live session; the generator runs later, after the request's
@@ -188,7 +210,7 @@ def build_archive_download(
             headers={"Retry-After": "5"},
         )
     return StreamingResponse(
-        _stream_with_release(entries),
+        _stream_with_release(entries, on_complete),
         media_type="application/zip",
         headers={"content-disposition": _zip_content_disposition(package_name)},
     )

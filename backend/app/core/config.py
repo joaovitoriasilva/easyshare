@@ -85,12 +85,30 @@ class Settings(BaseSettings):
     max_file_size: int = 100 * 1024 * 1024  # 100 MB per file
     max_files_per_package: int = 50
     max_archive_size: int = 5 * 1024 * 1024 * 1024  # 5 GiB per zip download
+    # Hard cap on a non-multipart (e.g. JSON) request body, enforced up front by
+    # ``MaxBodySizeMiddleware``. Far smaller than the multipart upload cap so a
+    # tiny API endpoint can never be made to buffer a huge JSON document in
+    # memory before Pydantic rejects it (uploads use ``max_request_body_size``).
+    max_json_body_size: int = Field(default=1024 * 1024, ge=1)  # 1 MiB
     # Upper bound on how many zip archives may be built concurrently. Each build
     # holds a worker thread for its whole duration, so without a cap a handful
     # of large archive downloads could exhaust the threadpool and stall every
     # other request. Excess requests get 503 (retry) instead of degrading the
     # whole service.
     max_concurrent_archive_builds: int = Field(default=4, ge=1)
+
+    # Resumable chunked uploads. A large file can be uploaded in chunks to a
+    # server-side scratch file so a dropped connection resumes from the last
+    # acknowledged offset instead of restarting from zero. ``chunk_size`` is the
+    # size advertised to the client; ``max_chunk_size`` is the server's hard
+    # per-request cap (must be >= ``chunk_size``). ``upload_session_ttl_hours``
+    # bounds how long an abandoned session (and its scratch file) survives before
+    # the background sweep removes it; ``upload_prune_interval_hours`` is how
+    # often that sweep runs.
+    chunk_size: int = Field(default=8 * 1024 * 1024, ge=64 * 1024)  # 8 MiB
+    max_chunk_size: int = Field(default=16 * 1024 * 1024, ge=64 * 1024)  # 16 MiB
+    upload_session_ttl_hours: int = Field(default=24, ge=1)
+    upload_prune_interval_hours: int = Field(default=6, ge=1)
 
     # Storage quotas, in bytes; 0 means unlimited.
     # ``storage_quota_total`` caps the whole instance's on-disk usage (0 =
@@ -158,6 +176,16 @@ class Settings(BaseSettings):
     # ``audit_prune_interval_hours`` controls how often that task runs.
     audit_retention_days: int = Field(default=30, ge=0)
     audit_prune_interval_hours: int = Field(default=24, ge=1)
+
+    # Hot-counter aggregation. Public share view/download counters are
+    # accumulated in process memory and flushed to the database every this many
+    # seconds, coalescing many per-hit ``UPDATE``s on a single share/file row
+    # into one and keeping a viral link from serialising thousands of
+    # transactions on that row. A crash can lose an unflushed, time-bounded
+    # delta, which is acceptable for approximate analytics (the same trade-off
+    # as the instance-total quota cache). Set to 0 to disable the background
+    # flusher (used by the test suite, which reads the buffered delta directly).
+    counter_flush_interval_seconds: int = Field(default=5, ge=0)
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -240,6 +268,16 @@ class Settings(BaseSettings):
         spooled to disk first (see ``MaxBodySizeMiddleware``).
         """
         return self.max_file_size + 1024 * 1024
+
+    @property
+    def chunk_max_body_size(self) -> int:
+        """Hard cap on a single resumable-upload chunk request body.
+
+        A little larger than ``max_chunk_size`` to allow for header framing, so
+        ``MaxBodySizeMiddleware`` can turn away an over-sized chunk up front
+        while still admitting a legitimate full-size one.
+        """
+        return self.max_chunk_size + 64 * 1024
 
     @property
     def email_verification_enabled(self) -> bool:

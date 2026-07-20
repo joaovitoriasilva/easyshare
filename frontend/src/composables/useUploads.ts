@@ -1,6 +1,9 @@
 import { computed, reactive, type ComputedRef } from "vue";
 import { packagesApi } from "@/api";
 import { ApiError } from "@/api/client";
+import type { PackageFile } from "@/api/types";
+import { uploadFileChunked } from "@/lib/chunkedUpload";
+import { useAuthStore } from "@/stores/auth";
 import { useToasts } from "@/composables/useToasts";
 import { formatBytes } from "@/lib/format";
 
@@ -41,6 +44,8 @@ interface UploadControl {
   controllers: (AbortController | null)[];
   /** Indices cancelled while still queued, so the loop skips them when reached. */
   canceled: Set<number>;
+  /** Called with each successfully-created file so a view can append it in place. */
+  onUploaded?: (file: PackageFile) => void;
 }
 
 /**
@@ -102,6 +107,7 @@ const UPLOAD_CONCURRENCY = 3;
 
 export function useUploads() {
   const toast = useToasts();
+  const auth = useAuthStore();
 
   /** Reactive list of the current upload batch for a package (empty if none). */
   function uploadsFor(packageId: number): ComputedRef<UploadItem[]> {
@@ -111,6 +117,23 @@ export function useUploads() {
   /** Whether a package currently has an upload batch in progress. */
   function isUploading(packageId: number): ComputedRef<boolean> {
     return computed(() => uploadsByPackage.get(packageId)?.active ?? false);
+  }
+
+  /**
+   * Point the "file uploaded" callback of an in-progress batch at `callback`.
+   *
+   * A batch outlives the component that started it, so a view that unmounts and
+   * remounts mid-upload calls this to re-attach its own optimistic-append
+   * handler; a no-op when no batch is running for the package.
+   */
+  function bindUploaded(
+    packageId: number,
+    callback: (file: PackageFile) => void,
+  ): void {
+    const control = controlByPackage.get(packageId);
+    if (control) {
+      control.onUploaded = callback;
+    }
   }
 
   /** Drop the batch once it is idle and every file finished successfully. */
@@ -139,16 +162,32 @@ export function useUploads() {
     item.status = "uploading";
     item.progress = 0;
     try {
-      await packagesApi.uploadFile(
-        packageId,
-        control.files[index],
-        (fraction) => {
-          item.progress = fraction;
-        },
-        controller.signal,
-      );
+      const file = control.files[index];
+      // Large files use the resumable, chunked flow so a dropped connection
+      // resumes instead of restarting; small ones use the single-request upload.
+      const useChunked =
+        auth.chunkUploadsEnabled && file.size > auth.chunkSize;
+      const created = useChunked
+        ? await uploadFileChunked(packageId, file, {
+            chunkSize: auth.chunkSize,
+            onProgress: (fraction) => {
+              item.progress = fraction;
+            },
+            signal: controller.signal,
+          })
+        : await packagesApi.uploadFile(
+            packageId,
+            file,
+            (fraction) => {
+              item.progress = fraction;
+            },
+            controller.signal,
+          );
       item.progress = 1;
       item.status = "done";
+      // Let the owning view reflect the new file immediately (optimistic update)
+      // instead of refetching the whole package after the batch.
+      control.onUploaded?.(created);
       return true;
     } catch (err) {
       if (controller.signal.aborted) {
@@ -176,6 +215,7 @@ export function useUploads() {
     files: File[],
     maxSize: number,
     packageName = "",
+    onUploaded?: (file: PackageFile) => void,
   ): Promise<number> {
     if (isUploading(packageId).value || files.length === 0) {
       return 0;
@@ -209,6 +249,7 @@ export function useUploads() {
       files: valid,
       controllers: valid.map(() => null),
       canceled: new Set<number>(),
+      onUploaded,
     });
 
     let uploaded = 0;
@@ -312,6 +353,7 @@ export function useUploads() {
   return {
     uploadsFor,
     isUploading,
+    bindUploaded,
     startUploads,
     cancelUpload,
     retryUpload,

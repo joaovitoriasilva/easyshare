@@ -48,3 +48,36 @@ function legacyCopy(text: string): boolean {
   }
   return copied;
 }
+
+/** Outcome of {@link shareOrCopy}: the native share sheet, a clipboard copy, or nothing. */
+export type ShareResult = "shared" | "copied" | "failed";
+
+/**
+ * Offer the native share sheet (mobile/`navigator.share`) and fall back to
+ * copying the URL to the clipboard.
+ *
+ * Returns `"shared"` when the OS share sheet completed, `"copied"` when the URL
+ * was placed on the clipboard instead, and `"failed"` if neither worked. A user
+ * dismissing the share sheet (`AbortError`) is treated as handled, not a
+ * failure, so the caller does not then also copy behind their back.
+ */
+export async function shareOrCopy(data: {
+  url: string;
+  title?: string;
+  text?: string;
+}): Promise<ShareResult> {
+  if (typeof navigator.share === "function") {
+    try {
+      await navigator.share({ title: data.title, text: data.text, url: data.url });
+      return "shared";
+    } catch (error) {
+      // The user cancelled the share sheet: nothing more to do.
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return "shared";
+      }
+      // Any other failure falls through to the clipboard path below.
+    }
+  }
+  return (await copyText(data.url)) ? "copied" : "failed";
+}
+

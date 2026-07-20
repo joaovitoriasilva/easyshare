@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from app.api.deps import DbSession, OwnedPackage
 from app.core.audit import record_event
 from app.core.security import generate_share_token
+from app.core.utils import normalize_email
 from app.models.models import Share, ShareAllowedEmail, ShareVisibility
 from app.schemas.schemas import (
     MessageResponse,
@@ -43,7 +44,7 @@ def _apply_emails(share: Share, emails: list[str]) -> None:
     desired: list[str] = []
     seen: set[str] = set()
     for email in emails:
-        normalized = email.strip().lower()
+        normalized = normalize_email(email)
         if normalized and normalized not in seen:
             seen.add(normalized)
             desired.append(normalized)

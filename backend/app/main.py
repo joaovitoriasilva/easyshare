@@ -24,6 +24,7 @@ from app.api.routes import (
     packages,
     public,
     shares,
+    uploads,
 )
 from app.core.config import settings
 from app.core.logging import configure_logging, get_request_id
@@ -38,7 +39,12 @@ from app.core.rate_limit import (
     rate_limit_store_healthy,
 )
 from app.core.static import router as frontend_router
-from app.core.tasks import audit_retention_loop
+from app.core.tasks import (
+    audit_retention_loop,
+    counter_flush_loop,
+    upload_session_prune_loop,
+)
+from app.services.counters import counter_buffer
 from app.services.storage import storage
 
 configure_logging()
@@ -49,23 +55,34 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Start and cleanly stop background maintenance tasks.
 
     The audit-retention loop is only started when a positive
-    ``audit_retention_days`` is configured; otherwise there is nothing to run.
+    ``audit_retention_days`` is configured; the counter-flush loop only when a
+    positive ``counter_flush_interval_seconds`` is configured. On shutdown every
+    started task is cancelled and a final counter flush persists any increments
+    buffered since the last flush.
     """
-    task: asyncio.Task[None] | None = None
+    tasks: list[asyncio.Task[None]] = []
     if settings.audit_retention_days > 0:
-        task = asyncio.create_task(audit_retention_loop())
+        tasks.append(asyncio.create_task(audit_retention_loop()))
+    if settings.counter_flush_interval_seconds > 0:
+        tasks.append(asyncio.create_task(counter_flush_loop()))
+    tasks.append(asyncio.create_task(upload_session_prune_loop()))
     try:
         yield
     finally:
-        if task is not None:
+        for task in tasks:
             task.cancel()
+        for task in tasks:
             with suppress(asyncio.CancelledError):
                 await task
+        # Persist any counts buffered since the last flush; best-effort so a
+        # storage error can never block a clean shutdown.
+        with suppress(Exception):
+            await asyncio.to_thread(counter_buffer.flush)
 
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.3.0",
+    version="0.4.0",
     description="Secure file and package sharing API.",
     lifespan=lifespan,
 )
@@ -116,7 +133,10 @@ def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
 # thus before the endpoint reads/spools the multipart body), while its 413 still
 # flows back out through the request-id and security-header middleware.
 app.add_middleware(
-    MaxBodySizeMiddleware, max_body_size=settings.max_request_body_size
+    MaxBodySizeMiddleware,
+    max_body_size=settings.max_request_body_size,
+    json_max_body_size=settings.max_json_body_size,
+    chunk_max_body_size=settings.chunk_max_body_size,
 )
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(
@@ -134,6 +154,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 api_prefix = "/api"
 app.include_router(auth.router, prefix=api_prefix)
 app.include_router(packages.router, prefix=api_prefix)
+app.include_router(uploads.router, prefix=api_prefix)
 app.include_router(shares.router, prefix=api_prefix)
 app.include_router(public.router, prefix=api_prefix)
 app.include_router(audit.router, prefix=api_prefix)
