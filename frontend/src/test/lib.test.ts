@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatRelativeTime } from "@/lib/format";
+import {
+  formatBytes,
+  formatDuration,
+  formatRate,
+  formatRelativeTime,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 describe("formatBytes", () => {
@@ -17,6 +22,41 @@ describe("formatBytes", () => {
 
   it("formats megabytes", () => {
     expect(formatBytes(5 * 1024 * 1024)).toBe("5.0 MB");
+  });
+});
+
+describe("formatRate", () => {
+  it("returns an empty string for a non-positive or invalid rate", () => {
+    expect(formatRate(0)).toBe("");
+    expect(formatRate(-1)).toBe("");
+    expect(formatRate(Number.NaN)).toBe("");
+  });
+
+  it("formats a positive rate with a /s suffix", () => {
+    expect(formatRate(2048)).toBe("2.0 KB/s");
+    expect(formatRate(5 * 1024 * 1024)).toBe("5.0 MB/s");
+  });
+});
+
+describe("formatDuration", () => {
+  it("returns an empty string for a missing or negative value", () => {
+    expect(formatDuration(null)).toBe("");
+    expect(formatDuration(undefined)).toBe("");
+    expect(formatDuration(-5)).toBe("");
+    expect(formatDuration(Number.NaN)).toBe("");
+  });
+
+  it("formats seconds", () => {
+    expect(formatDuration(0)).toBe("0s");
+    expect(formatDuration(45)).toBe("45s");
+  });
+
+  it("formats minutes and seconds", () => {
+    expect(formatDuration(185)).toBe("3m 05s");
+  });
+
+  it("formats hours and minutes", () => {
+    expect(formatDuration(3720)).toBe("1h 02m");
   });
 });
 

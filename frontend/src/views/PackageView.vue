@@ -17,7 +17,7 @@ import {
 import { packagesApi, sharesApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { Package, PackageFile, PackageStats, Share, Visibility } from "@/api/types";
-import { formatBytes, formatRelativeTime } from "@/lib/format";
+import { formatBytes, formatDuration, formatRate, formatRelativeTime } from "@/lib/format";
 import { downloadUrl } from "@/lib/download";
 import { copyText, shareOrCopy } from "@/lib/clipboard";
 import { fileIcon } from "@/lib/fileIcon";
@@ -26,6 +26,10 @@ import { useToasts } from "@/composables/useToasts";
 import { useConfirm } from "@/composables/useConfirm";
 import { useUploads, type UploadItem } from "@/composables/useUploads";
 import { useArchiveDownload } from "@/composables/useArchiveDownload";
+import {
+  useResumableUploads,
+  type PendingResume,
+} from "@/composables/useResumableUploads";
 import { setDocumentTitle } from "@/composables/useDocumentTitle";
 import { useAuthStore } from "@/stores/auth";
 import {
@@ -65,10 +69,11 @@ const qr = ref<InstanceType<typeof QrCode> | null>(null);
 // Upload state lives in a module-level composable, keyed by package id, so a
 // running upload's progress is preserved when the user leaves this package and
 // comes back to it.
-const { uploadsFor, isUploading, startUploads, cancelUpload, retryUpload, dismissUpload, bindUploaded } =
+const { uploadsFor, isUploading, uploadRateFor, startUploads, cancelUpload, retryUpload, retryAllFailed, dismissUpload, bindUploaded } =
   useUploads();
 const uploads = uploadsFor(packageId);
 const uploading = isUploading(packageId);
+const uploadRate = uploadRateFor(packageId);
 
 // Archive (zip) download of the whole package (or a selection) with an in-app
 // progress read-out; falls back to a native browser download when too large to
@@ -77,9 +82,22 @@ const {
   downloading: archiving,
   percent: archivePercent,
   indeterminate: archiveIndeterminate,
+  bytesPerSecond: archiveRate,
+  etaSeconds: archiveEta,
   start: startArchive,
   cancel: cancelArchive,
 } = useArchiveDownload();
+
+// Interrupted uploads (whose chunked session survives in localStorage) surfaced
+// after a full page reload, so the user can resume or discard each one.
+const {
+  pending: resumables,
+  refresh: refreshResumables,
+  remove: removeResumable,
+  discard: discardResumableEntry,
+} = useResumableUploads(packageId);
+const resumeInput = ref<HTMLInputElement | null>(null);
+const resumeTarget = ref<PendingResume | null>(null);
 
 // Aggregate progress across the current batch, for the summary bar above the
 // per-file rows.
@@ -359,6 +377,51 @@ function onDrop(event: DragEvent): void {
   if (files && files.length > 0) {
     runUploads(Array.from(files));
   }
+}
+
+/** Percent of an interrupted upload already received by the server. */
+function resumePercent(entry: PendingResume): number {
+  return entry.size > 0 ? Math.round((entry.offset / entry.size) * 100) : 0;
+}
+
+/** Open the file picker so the user can re-select a file to resume. */
+function pickResume(entry: PendingResume): void {
+  resumeTarget.value = entry;
+  resumeInput.value?.click();
+}
+
+/**
+ * Resume an interrupted upload once the user re-selects the original file. The
+ * chosen file must match the stored signature (name, size, last-modified) so we
+ * never append bytes from a different file onto an existing server session; the
+ * chunked-upload flow then continues from the server's received offset.
+ */
+function onResumeFile(event: Event): void {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0] ?? null;
+  target.value = "";
+  const entry = resumeTarget.value;
+  resumeTarget.value = null;
+  if (!file || !entry) {
+    return;
+  }
+  if (
+    file.name !== entry.filename ||
+    file.size !== entry.size ||
+    file.lastModified !== entry.lastModified
+  ) {
+    toast.error(
+      `That file doesn't match \u201c${entry.filename}\u201d. Choose the original file to resume.`,
+    );
+    return;
+  }
+  removeResumable(entry.key);
+  runUploads([file]);
+}
+
+/** Abort and forget an interrupted upload the user does not want to resume. */
+function discardResume(entry: PendingResume): void {
+  void discardResumableEntry(entry);
 }
 
 /**
@@ -654,6 +717,8 @@ onMounted(() => {
   // from and back to mid-upload still reflects files finished by the running
   // batch (which was started with the previous instance's callback).
   bindUploaded(packageId, appendUploadedFile);
+  // Surface any upload interrupted before a full reload so it can be resumed.
+  void refreshResumables();
 });
 </script>
 
@@ -749,6 +814,55 @@ onMounted(() => {
               class="hidden"
               @change="onFolderUpload"
             />
+            <!-- Single-file picker for resuming an interrupted upload: the
+                 browser cannot re-open the original file after a reload, so the
+                 user re-selects it and we match it to the stored session. -->
+            <input
+              ref="resumeInput"
+              type="file"
+              class="hidden"
+              @change="onResumeFile"
+            />
+
+            <div
+              v-if="resumables.length"
+              class="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-3"
+            >
+              <p class="text-sm font-medium">Resume interrupted upload</p>
+              <ul class="space-y-2">
+                <li
+                  v-for="entry in resumables"
+                  :key="entry.key"
+                  class="flex items-center justify-between gap-3 text-sm"
+                >
+                  <span class="min-w-0 flex-1 truncate">
+                    {{ entry.filename }}
+                    <span class="text-muted-foreground">
+                      &middot; {{ resumePercent(entry) }}% uploaded
+                    </span>
+                  </span>
+                  <span class="flex shrink-0 gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      class="h-8 gap-1.5 px-2.5 text-xs"
+                      :disabled="uploading"
+                      @click="pickResume(entry)"
+                    >
+                      <RotateCw class="h-4 w-4" /> Resume
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      class="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground"
+                      @click="discardResume(entry)"
+                    >
+                      <X class="h-4 w-4" /> Discard
+                    </Button>
+                  </span>
+                </li>
+              </ul>
+            </div>
 
             <div
               role="button"
@@ -817,6 +931,25 @@ onMounted(() => {
                   class="h-full rounded-full bg-primary transition-all"
                   :style="{ width: `${uploadSummary.percent}%` }"
                 />
+              </div>
+              <div
+                v-if="uploading && uploadRate.bytesPerSecond > 0"
+                class="flex items-center justify-between gap-2 text-xs text-muted-foreground"
+              >
+                <span class="tabular-nums">{{ formatRate(uploadRate.bytesPerSecond) }}</span>
+                <span v-if="formatDuration(uploadRate.etaSeconds)" class="tabular-nums">
+                  {{ formatDuration(uploadRate.etaSeconds) }} left
+                </span>
+              </div>
+              <div v-if="!uploading && uploadSummary.failed > 0">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="h-8 gap-1.5 px-2.5 text-xs"
+                  @click="retryAllFailed(packageId)"
+                >
+                  <RotateCw class="h-4 w-4" /> Retry all failed
+                </Button>
               </div>
             </div>
 
@@ -912,7 +1045,15 @@ onMounted(() => {
 
               <div v-if="archiving" class="space-y-1">
                 <div class="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Preparing download…</span>
+                  <span>
+                    Preparing download…
+                    <span v-if="formatRate(archiveRate)" class="tabular-nums">
+                      &middot; {{ formatRate(archiveRate) }}
+                    </span>
+                    <span v-if="formatDuration(archiveEta)" class="tabular-nums">
+                      &middot; {{ formatDuration(archiveEta) }} left
+                    </span>
+                  </span>
                   <div class="flex items-center gap-2">
                     <span v-if="archivePercent !== null" class="tabular-nums">
                       {{ archivePercent }}%

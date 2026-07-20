@@ -30,6 +30,7 @@ from app.schemas.schemas import (
 )
 from app.services.archive import build_archive_download, validate_archive_request
 from app.services.counters import counter_buffer
+from app.services.files import store_package_file
 from app.services.quota import remaining_upload_cap
 from app.services.storage import FileTooLargeError, storage
 from app.services.validation import sanitize_upload_filename
@@ -239,23 +240,14 @@ def upload_file(
     # disabled, the readable storage key can embed the file's database id. In
     # obfuscated mode the provisional random key generated here is already the
     # final one.
-    record = PackageFile(
-        package_id=package.id,
-        filename=safe_filename,
-        content_type=file.content_type or "application/octet-stream",
-        size=0,
-        storage_key=storage.generate_key(),
-    )
-    db.add(record)
-    db.flush()
-
-    if not settings.obfuscate_storage_names:
-        record.storage_key = storage.readable_key(
-            package.id, record.id, safe_filename
-        )
-
     try:
-        size = storage.save(record.storage_key, file.file, max_bytes=cap)
+        record = store_package_file(
+            db,
+            package,
+            filename=safe_filename,
+            content_type=file.content_type or "application/octet-stream",
+            writer=lambda key: storage.save(key, file.file, max_bytes=cap),
+        )
     except FileTooLargeError as exc:
         db.rollback()
         raise HTTPException(
@@ -263,7 +255,6 @@ def upload_file(
             detail=cap_message,
         ) from exc
 
-    record.size = size
     db.commit()
     db.refresh(record)
     return record

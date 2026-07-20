@@ -2,6 +2,7 @@
 import { RouterLink } from "vue-router";
 import { Loader2 } from "lucide-vue-next";
 import { useUploads } from "@/composables/useUploads";
+import { formatDuration, formatRate } from "@/lib/format";
 
 // Reads the shared, module-level upload state so a running upload stays visible
 // no matter which view is mounted (or if none is).
@@ -47,6 +48,15 @@ const { activeBatches, hasActiveUploads } = useUploads();
       <p class="mt-1.5 text-xs text-muted-foreground">
         {{ batch.done }} of {{ batch.total }} uploaded
         <template v-if="batch.failed > 0"> &middot; {{ batch.failed }} failed</template>
+      </p>
+      <p
+        v-if="batch.bytesPerSecond > 0"
+        class="mt-0.5 flex items-center justify-between text-xs text-muted-foreground"
+      >
+        <span class="tabular-nums">{{ formatRate(batch.bytesPerSecond) }}</span>
+        <span v-if="formatDuration(batch.etaSeconds)" class="tabular-nums">
+          {{ formatDuration(batch.etaSeconds) }} left
+        </span>
       </p>
     </div>
   </div>

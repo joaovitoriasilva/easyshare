@@ -193,6 +193,33 @@ describe("useUploads", () => {
     expect(uploadsFor(11).value).toEqual([]);
   });
 
+  it("retries every failed file at once and clears the batch on success", async () => {
+    uploadFileMock
+      .mockRejectedValueOnce(new ApiError(500, "boom"))
+      .mockRejectedValueOnce(new ApiError(500, "boom"))
+      .mockResolvedValue(undefined);
+    const { startUploads, retryAllFailed, uploadsFor, isUploading } = useUploads();
+
+    await startUploads(13, [makeFile("a.txt"), makeFile("b.txt")], 1000);
+    const items = uploadsFor(13);
+    expect(items.value).toHaveLength(2);
+    expect(items.value.every((item) => item.status === "error")).toBe(true);
+
+    const retried = await retryAllFailed(13);
+
+    expect(retried).toBe(2);
+    expect(isUploading(13).value).toBe(false);
+    expect(items.value).toEqual([]);
+  });
+
+  it("retryAllFailed is a no-op when nothing failed", async () => {
+    uploadFileMock.mockResolvedValue(undefined);
+    const { startUploads, retryAllFailed } = useUploads();
+
+    await startUploads(14, [makeFile("a.txt")], 1000);
+    expect(await retryAllFailed(14)).toBe(0);
+  });
+
   it("dismisses a failed upload row", async () => {
     uploadFileMock.mockRejectedValue(new ApiError(500, "boom"));
     const { startUploads, dismissUpload, uploadsFor } = useUploads();

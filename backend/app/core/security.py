@@ -9,7 +9,10 @@ import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from jose import JWTError, jwt
+from joserfc import jwt
+from joserfc.errors import JoseError
+from joserfc.jwk import OctKey
+from joserfc.jwt import JWTClaimsRegistry
 from pwdlib import PasswordHash
 from pwdlib.hashers.argon2 import Argon2Hasher
 
@@ -73,6 +76,41 @@ def dummy_verify() -> None:
         _password_hash.verify(secrets.token_urlsafe(32), _DUMMY_HASH)
 
 
+# JWT signing key and claims validator, built once at import (mirroring the
+# import-time construction of the password hasher above). joserfc keeps the two
+# concerns separate: ``jwt.decode`` verifies the signature and restricts the
+# accepted algorithm, while ``JWTClaimsRegistry.validate`` enforces the ``exp``
+# claim. The key material is the shared application secret.
+_signing_key = OctKey.import_key(settings.secret_key)
+_claims_registry = JWTClaimsRegistry()
+
+
+def _encode(claims: dict[str, Any]) -> str:
+    """Sign ``claims`` into a compact JWS (``exp`` datetimes become timestamps)."""
+    return jwt.encode(
+        {"alg": settings.algorithm},
+        claims,
+        _signing_key,
+        algorithms=[settings.algorithm],
+    )
+
+
+def _decode(token: str) -> dict[str, Any] | None:
+    """Return a valid, unexpired token's claims, or ``None`` if it is invalid.
+
+    ``algorithms`` pins the single accepted algorithm so a token signed with a
+    different one (an algorithm-substitution attack) is rejected; the claims
+    registry then rejects an expired token. Any failure maps to ``None`` so
+    every caller treats an unusable token as simply unauthenticated.
+    """
+    try:
+        decoded = jwt.decode(token, _signing_key, algorithms=[settings.algorithm])
+        _claims_registry.validate(decoded.claims)
+    except (JoseError, ValueError):
+        return None
+    return decoded.claims
+
+
 def create_access_token(
     subject: str | int, expires_delta: timedelta | None = None
 ) -> str:
@@ -80,24 +118,20 @@ def create_access_token(
     expire = datetime.now(UTC) + (
         expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
     )
-    payload: dict[str, Any] = {"sub": str(subject), "exp": expire}
-    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+    return _encode({"sub": str(subject), "exp": expire})
 
 
 def decode_access_token(token: str) -> str | None:
     """Return the subject of a valid token, or ``None`` if invalid/expired."""
-    try:
-        payload = jwt.decode(
-            token, settings.secret_key, algorithms=[settings.algorithm]
-        )
-    except JWTError:
+    claims = _decode(token)
+    if claims is None:
         return None
     # A user access token carries no scope; reject anything scoped (e.g. a
     # share-access download token) so the two token types can never be used
     # interchangeably even though they are signed with the same key.
-    if payload.get("scope") is not None:
+    if claims.get("scope") is not None:
         return None
-    subject = payload.get("sub")
+    subject = claims.get("sub")
     if subject is None:
         return None
     return str(subject)
@@ -117,13 +151,14 @@ def create_share_access_token(
         expires_delta
         or timedelta(minutes=settings.share_access_token_expire_minutes)
     )
-    payload: dict[str, Any] = {
-        "scope": _SHARE_ACCESS_SCOPE,
-        "sub": share_token,
-        "email": email,
-        "exp": expire,
-    }
-    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+    return _encode(
+        {
+            "scope": _SHARE_ACCESS_SCOPE,
+            "sub": share_token,
+            "email": email,
+            "exp": expire,
+        }
+    )
 
 
 def decode_share_access_token(token: str, share_token: str) -> str | None:
@@ -132,17 +167,14 @@ def decode_share_access_token(token: str, share_token: str) -> str | None:
     Returns ``None`` unless the token is correctly signed, unexpired, carries the
     share-access scope and was issued for ``share_token``.
     """
-    try:
-        payload = jwt.decode(
-            token, settings.secret_key, algorithms=[settings.algorithm]
-        )
-    except JWTError:
+    claims = _decode(token)
+    if claims is None:
         return None
-    if payload.get("scope") != _SHARE_ACCESS_SCOPE:
+    if claims.get("scope") != _SHARE_ACCESS_SCOPE:
         return None
-    if payload.get("sub") != share_token:
+    if claims.get("sub") != share_token:
         return None
-    email = payload.get("email")
+    email = claims.get("email")
     if not isinstance(email, str):
         return None
     return email
@@ -158,27 +190,25 @@ def create_download_token(
     buffered in memory by the SPA.
     """
     expire = datetime.now(UTC) + (expires_delta or _DOWNLOAD_TOKEN_TTL)
-    payload: dict[str, Any] = {
-        "scope": _DOWNLOAD_SCOPE,
-        "sub": str(user_id),
-        "pkg": package_id,
-        "exp": expire,
-    }
-    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+    return _encode(
+        {
+            "scope": _DOWNLOAD_SCOPE,
+            "sub": str(user_id),
+            "pkg": package_id,
+            "exp": expire,
+        }
+    )
 
 
 def decode_download_token(token: str) -> tuple[int, int] | None:
     """Return ``(user_id, package_id)`` for a valid download token, else ``None``."""
-    try:
-        payload = jwt.decode(
-            token, settings.secret_key, algorithms=[settings.algorithm]
-        )
-    except JWTError:
+    claims = _decode(token)
+    if claims is None:
         return None
-    if payload.get("scope") != _DOWNLOAD_SCOPE:
+    if claims.get("scope") != _DOWNLOAD_SCOPE:
         return None
-    subject = payload.get("sub")
-    package_id = payload.get("pkg")
+    subject = claims.get("sub")
+    package_id = claims.get("pkg")
     if subject is None or not isinstance(package_id, int):
         return None
     try:

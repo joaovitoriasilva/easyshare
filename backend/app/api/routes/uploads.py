@@ -29,8 +29,9 @@ from app.schemas.schemas import (
     UploadSessionRead,
 )
 from app.services import chunked
+from app.services.files import store_package_file
 from app.services.quota import remaining_upload_cap
-from app.services.storage import FileTooLargeError, storage
+from app.services.storage import FileTooLargeError
 from app.services.validation import sanitize_upload_filename
 
 router = APIRouter(prefix="/packages/{package_id}/uploads", tags=["uploads"])
@@ -124,21 +125,16 @@ def _finalize(db: DbSession, package: OwnedPackage, session: UploadSession) -> P
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=cap_message
         )
-    record = PackageFile(
-        package_id=package.id,
-        filename=session.filename,
-        content_type=session.content_type,
-        size=0,
-        storage_key=storage.generate_key(),
-    )
-    db.add(record)
-    db.flush()
-    if not settings.obfuscate_storage_names:
-        record.storage_key = storage.readable_key(
-            package.id, record.id, session.filename
-        )
     try:
-        size = chunked.finalize(session.scratch_key, record.storage_key, max_bytes=cap)
+        record = store_package_file(
+            db,
+            package,
+            filename=session.filename,
+            content_type=session.content_type,
+            writer=lambda key: chunked.finalize(
+                session.scratch_key, key, max_bytes=cap
+            ),
+        )
     except FileTooLargeError as exc:
         db.rollback()
         # The record insert is undone by the rollback; remove the now-orphaned
@@ -148,7 +144,6 @@ def _finalize(db: DbSession, package: OwnedPackage, session: UploadSession) -> P
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=cap_message
         ) from exc
-    record.size = size
     db.delete(session)
     db.commit()
     db.refresh(record)

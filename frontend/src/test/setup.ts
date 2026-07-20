@@ -4,6 +4,14 @@ import { beforeEach, vi } from "vitest";
 class LocalStorageMock {
   private store: Record<string, string> = {};
 
+  get length(): number {
+    return Object.keys(this.store).length;
+  }
+
+  key(index: number): string | null {
+    return Object.keys(this.store)[index] ?? null;
+  }
+
   getItem(key: string): string | null {
     return key in this.store ? this.store[key] : null;
   }

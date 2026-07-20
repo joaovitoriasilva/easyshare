@@ -36,12 +36,7 @@ jobs:
         run: uv sync --frozen
 
       - name: Audit Python dependencies
-        # Two advisories are ignored deliberately; both are off EasyShare's
-        # code path:
-        #   * PYSEC-2026-1325 (ecdsa): Minerva P-256 signing side channel with
-        #     no upstream fix. Pulled in transitively by python-jose; EasyShare
-        #     signs/verifies JWTs with HS256 (HMAC) only, so the affected ECDSA
-        #     path is never exercised.
+        # One advisory is ignored deliberately; it is off EasyShare's code path:
         #   * GHSA-4xgf-cpjx-pc3j (pydantic-settings): symlink escape in
         #     NestedSecretsSettingsSource / secrets_dir, neither of which
         #     EasyShare uses. Fixed in 2.14.2 and held back only by the
@@ -50,7 +45,6 @@ jobs:
         run: >-
           uvx pip-audit --require-hashes --disable-pip
           -r <(uv export --frozen --no-header --no-emit-project --no-dev)
-          --ignore-vuln PYSEC-2026-1325
           --ignore-vuln GHSA-4xgf-cpjx-pc3j
 
       - name: Lint (ruff)

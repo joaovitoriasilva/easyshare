@@ -5,7 +5,7 @@ import { Download, Lock, MailCheck, Package2, X } from "lucide-vue-next";
 import { publicApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { PublicShare } from "@/api/types";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, formatDuration, formatRate } from "@/lib/format";
 import { downloadUrl } from "@/lib/download";
 import { fileIcon } from "@/lib/fileIcon";
 import { isValidEmail } from "@/lib/validation";
@@ -88,6 +88,8 @@ const {
   downloading: archiving,
   percent: archivePercent,
   indeterminate: archiveIndeterminate,
+  bytesPerSecond: archiveRate,
+  etaSeconds: archiveEta,
   start: startArchive,
   cancel: cancelArchive,
 } = useArchiveDownload();
@@ -315,7 +317,15 @@ onMounted(load);
               </div>
               <div v-if="archiving" class="space-y-1">
                 <div class="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Preparing download…</span>
+                  <span>
+                    Preparing download…
+                    <span v-if="formatRate(archiveRate)" class="tabular-nums">
+                      &middot; {{ formatRate(archiveRate) }}
+                    </span>
+                    <span v-if="formatDuration(archiveEta)" class="tabular-nums">
+                      &middot; {{ formatDuration(archiveEta) }} left
+                    </span>
+                  </span>
                   <span v-if="archivePercent !== null" class="tabular-nums">
                     {{ archivePercent }}%
                   </span>

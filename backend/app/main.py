@@ -123,15 +123,19 @@ def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
     )
 
 
-# Middleware runs outermost-first (reverse registration order). RequestContext
-# is registered last so it wraps everything — every response gets a request id
-# and one access-log line — while CORS stays outside SlowAPI so 429 responses
-# still carry CORS headers. SecurityHeaders is registered first (innermost) so
-# it still stamps the SPA/static responses served by frontend_router below.
-# MaxBodySize is registered before all of them so it ends up innermost of the
-# user middleware: it turns away an over-sized upload just before routing (and
-# thus before the endpoint reads/spools the multipart body), while its 413 still
-# flows back out through the request-id and security-header middleware.
+# Middleware runs outermost-first, which is the reverse of registration order:
+# ``add_middleware`` prepends, so the FIRST registered ends up innermost and the
+# LAST registered ends up outermost. The resulting order here (outer -> inner)
+# is SecurityHeaders -> RequestContext -> CORS -> SlowAPI -> MaxBodySize ->
+# routing. MaxBodySize is registered first so it sits just outside routing: it
+# turns away an over-sized upload before the endpoint reads/spools the multipart
+# body, while its 413 still flows back out through every other middleware. CORS
+# is registered after SlowAPI so it wraps it, keeping CORS headers on the 429s
+# SlowAPI emits. RequestContext is registered next-to-last so it wraps CORS,
+# SlowAPI and routing — every response gets a request id and one access-log
+# line. SecurityHeaders is registered last (outermost) so it stamps every
+# response, including SlowAPI 429s and the SPA/static responses served by
+# frontend_router below.
 app.add_middleware(
     MaxBodySizeMiddleware,
     max_body_size=settings.max_request_body_size,

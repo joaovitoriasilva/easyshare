@@ -15,7 +15,46 @@ export function useArchiveDownload() {
   const downloading = ref(false);
   const received = ref(0);
   const total = ref<number | null>(null);
+  const bytesPerSecond = ref(0);
+  const etaSeconds = ref<number | null>(null);
   let controller: AbortController | null = null;
+  // Sampling cursor for the smoothed transfer-rate estimate.
+  let sampleTime = 0;
+  let sampleBytes = 0;
+  let smoothedBps = 0;
+
+  function resetSpeed(): void {
+    bytesPerSecond.value = 0;
+    etaSeconds.value = null;
+    sampleTime = 0;
+    sampleBytes = 0;
+    smoothedBps = 0;
+  }
+
+  /** Update the smoothed rate and ETA from the latest received/total counters. */
+  function sampleSpeed(): void {
+    const now =
+      typeof performance !== "undefined" ? performance.now() : Date.now();
+    if (sampleTime === 0) {
+      sampleTime = now;
+      sampleBytes = received.value;
+      return;
+    }
+    const dt = (now - sampleTime) / 1000;
+    if (dt < 0.4) {
+      return;
+    }
+    const instant = Math.max(0, (received.value - sampleBytes) / dt);
+    smoothedBps = smoothedBps === 0 ? instant : smoothedBps * 0.7 + instant * 0.3;
+    sampleTime = now;
+    sampleBytes = received.value;
+    bytesPerSecond.value = smoothedBps;
+    const totalBytes = total.value;
+    etaSeconds.value =
+      totalBytes && totalBytes > 0 && smoothedBps > 0
+        ? Math.max(0, (totalBytes - received.value) / smoothedBps)
+        : null;
+  }
 
   /** Whole-number percentage, capped at 99 until done, or null when unknown. */
   const percent = computed(() => {
@@ -39,6 +78,7 @@ export function useArchiveDownload() {
     downloading.value = true;
     received.value = 0;
     total.value = estimatedBytes && estimatedBytes > 0 ? estimatedBytes : null;
+    resetSpeed();
     controller = new AbortController();
     const signal = controller.signal;
     try {
@@ -48,6 +88,7 @@ export function useArchiveDownload() {
         onProgress: (progress) => {
           received.value = progress.received;
           total.value = progress.total;
+          sampleSpeed();
         },
       });
       // Too large for in-memory streaming (or the request failed): let the
@@ -69,6 +110,7 @@ export function useArchiveDownload() {
     } finally {
       downloading.value = false;
       controller = null;
+      resetSpeed();
     }
   }
 
@@ -76,5 +118,15 @@ export function useArchiveDownload() {
     controller?.abort();
   }
 
-  return { downloading, received, total, percent, indeterminate, start, cancel };
+  return {
+    downloading,
+    received,
+    total,
+    percent,
+    indeterminate,
+    bytesPerSecond,
+    etaSeconds,
+    start,
+    cancel,
+  };
 }

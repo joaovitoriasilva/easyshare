@@ -11,6 +11,8 @@ import { formatBytes } from "@/lib/format";
 export interface UploadItem {
   id: number;
   name: string;
+  /** Total bytes, used to weight aggregate progress and compute transfer speed. */
+  size: number;
   progress: number;
   status: "uploading" | "done" | "error" | "canceled";
 }
@@ -20,6 +22,10 @@ interface PackageUpload {
   active: boolean;
   /** Package display name, for the global indicator. */
   name: string;
+  /** Smoothed aggregate transfer rate in bytes/second (0 until known). */
+  bytesPerSecond: number;
+  /** Estimated seconds remaining for the batch, or null when not yet known. */
+  etaSeconds: number | null;
 }
 
 /** Aggregated view of one package's in-flight batch, for the global indicator. */
@@ -31,6 +37,10 @@ export interface UploadBatchSummary {
   uploading: number;
   failed: number;
   percent: number;
+  /** Smoothed aggregate transfer rate in bytes/second (0 until known). */
+  bytesPerSecond: number;
+  /** Estimated seconds remaining, or null when not yet known. */
+  etaSeconds: number | null;
 }
 
 /**
@@ -90,12 +100,76 @@ const activeBatches = computed<UploadBatchSummary[]>(() => {
       uploading,
       failed,
       percent: total > 0 ? Math.round((progressSum / total) * 100) : 0,
+      bytesPerSecond: batch.bytesPerSecond,
+      etaSeconds: batch.etaSeconds,
     });
   }
   return summaries;
 });
 
 const hasActiveUploads = computed(() => activeBatches.value.length > 0);
+
+// Non-reactive per-package sampling cursor for the transfer-speed estimate. Kept
+// out of the reactive store so taking a sample never triggers a render; only the
+// smoothed result written back onto the batch does.
+interface SpeedSample {
+  time: number;
+  loaded: number;
+  bps: number;
+}
+const speedSamples = new Map<number, SpeedSample>();
+// Ignore samples closer together than this so a burst of progress events yields
+// a stable rate rather than a noisy one.
+const SPEED_SAMPLE_INTERVAL_MS = 400;
+// Exponential-moving-average weight for the newest instantaneous rate.
+const SPEED_SMOOTHING = 0.3;
+
+/** Bytes uploaded so far / total bytes across a batch (progress-weighted). */
+function batchBytes(entry: PackageUpload): { loaded: number; total: number } {
+  let loaded = 0;
+  let total = 0;
+  for (const item of entry.items) {
+    loaded += item.progress * item.size;
+    total += item.size;
+  }
+  return { loaded, total };
+}
+
+/** Update a batch's smoothed transfer rate and ETA from the latest progress. */
+function refreshSpeed(packageId: number): void {
+  const entry = uploadsByPackage.get(packageId);
+  if (!entry) {
+    return;
+  }
+  const now =
+    typeof performance !== "undefined" ? performance.now() : Date.now();
+  const { loaded, total } = batchBytes(entry);
+  const prev = speedSamples.get(packageId);
+  if (!prev) {
+    speedSamples.set(packageId, { time: now, loaded, bps: 0 });
+    return;
+  }
+  const dt = (now - prev.time) / 1000;
+  if (dt < SPEED_SAMPLE_INTERVAL_MS / 1000) {
+    return;
+  }
+  const instant = Math.max(0, (loaded - prev.loaded) / dt);
+  const bps =
+    prev.bps === 0 ? instant : prev.bps * (1 - SPEED_SMOOTHING) + instant * SPEED_SMOOTHING;
+  speedSamples.set(packageId, { time: now, loaded, bps });
+  entry.bytesPerSecond = bps;
+  entry.etaSeconds = bps > 0 ? Math.max(0, (total - loaded) / bps) : null;
+}
+
+/** Clear a batch's speed estimate (batch finished or was removed). */
+function resetSpeed(packageId: number): void {
+  speedSamples.delete(packageId);
+  const entry = uploadsByPackage.get(packageId);
+  if (entry) {
+    entry.bytesPerSecond = 0;
+    entry.etaSeconds = null;
+  }
+}
 
 const EMPTY: UploadItem[] = [];
 let nextItemId = 0;
@@ -117,6 +191,19 @@ export function useUploads() {
   /** Whether a package currently has an upload batch in progress. */
   function isUploading(packageId: number): ComputedRef<boolean> {
     return computed(() => uploadsByPackage.get(packageId)?.active ?? false);
+  }
+
+  /** Live transfer rate and ETA for a package's batch (0/null when idle). */
+  function uploadRateFor(
+    packageId: number,
+  ): ComputedRef<{ bytesPerSecond: number; etaSeconds: number | null }> {
+    return computed(() => {
+      const batch = uploadsByPackage.get(packageId);
+      return {
+        bytesPerSecond: batch?.bytesPerSecond ?? 0,
+        etaSeconds: batch?.etaSeconds ?? null,
+      };
+    });
   }
 
   /**
@@ -172,6 +259,7 @@ export function useUploads() {
             chunkSize: auth.chunkSize,
             onProgress: (fraction) => {
               item.progress = fraction;
+              refreshSpeed(packageId);
             },
             signal: controller.signal,
           })
@@ -180,6 +268,7 @@ export function useUploads() {
             file,
             (fraction) => {
               item.progress = fraction;
+              refreshSpeed(packageId);
             },
             controller.signal,
           );
@@ -238,11 +327,14 @@ export function useUploads() {
       items: valid.map((file) => ({
         id: (nextItemId += 1),
         name: file.name,
+        size: file.size,
         progress: 0,
         status: "uploading",
       })),
       active: true,
       name: packageName,
+      bytesPerSecond: 0,
+      etaSeconds: null,
     });
     uploadsByPackage.set(packageId, entry);
     controlByPackage.set(packageId, {
@@ -276,6 +368,7 @@ export function useUploads() {
       }
     } finally {
       entry.active = false;
+      resetSpeed(packageId);
       // Keep the batch (with the failed/cancelled rows still visible) if
       // anything did not finish, so the user can retry or dismiss it.
       cleanup(packageId);
@@ -326,8 +419,60 @@ export function useUploads() {
       return ok;
     } finally {
       entry.active = false;
+      resetSpeed(packageId);
       cleanup(packageId);
     }
+  }
+
+  /**
+   * Retry every failed or cancelled file in a package's batch at once, with the
+   * same bounded concurrency as the initial run. Only valid while the batch is
+   * idle; flips `active` so a remounted view still reacts to completion and the
+   * batch is cleaned up when everything finally succeeds. Resolves to how many
+   * files succeeded.
+   */
+  async function retryAllFailed(packageId: number): Promise<number> {
+    const entry = uploadsByPackage.get(packageId);
+    const control = controlByPackage.get(packageId);
+    if (!entry || !control || entry.active) {
+      return 0;
+    }
+    const queue = entry.items.reduce<number[]>((indices, item, index) => {
+      if (item.status === "error" || item.status === "canceled") {
+        indices.push(index);
+      }
+      return indices;
+    }, []);
+    if (queue.length === 0) {
+      return 0;
+    }
+    for (const index of queue) {
+      control.canceled.delete(index);
+    }
+    entry.active = true;
+    let retried = 0;
+    let cursor = 0;
+    async function worker(): Promise<void> {
+      while (cursor < queue.length) {
+        const index = queue[cursor];
+        cursor += 1;
+        if (await uploadOne(packageId, index)) {
+          retried += 1;
+        }
+      }
+    }
+    try {
+      const workerCount = Math.min(UPLOAD_CONCURRENCY, queue.length);
+      await Promise.all(Array.from({ length: workerCount }, () => worker()));
+      if (retried > 0) {
+        toast.success(`Uploaded ${retried} file${retried === 1 ? "" : "s"}`);
+      }
+    } finally {
+      entry.active = false;
+      resetSpeed(packageId);
+      cleanup(packageId);
+    }
+    return retried;
   }
 
   /** Remove a finished (failed/cancelled) row the user does not want to retry. */
@@ -353,10 +498,12 @@ export function useUploads() {
   return {
     uploadsFor,
     isUploading,
+    uploadRateFor,
     bindUploaded,
     startUploads,
     cancelUpload,
     retryUpload,
+    retryAllFailed,
     dismissUpload,
     activeBatches,
     hasActiveUploads,
