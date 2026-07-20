@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { X } from "lucide-vue-next";
+import { X } from "@lucide/vue";
 import { useToasts } from "@/composables/useToasts";
 import { severityClasses, severityIcons } from "@/lib/severity";
 

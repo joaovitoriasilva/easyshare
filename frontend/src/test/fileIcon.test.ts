@@ -4,7 +4,7 @@ import {
   FileArchive,
   FileImage,
   FileText,
-} from "lucide-vue-next";
+} from "@lucide/vue";
 import { fileIcon } from "@/lib/fileIcon";
 
 describe("fileIcon", () => {

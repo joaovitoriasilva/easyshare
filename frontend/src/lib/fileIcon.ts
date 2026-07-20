@@ -12,7 +12,7 @@ import {
   FileSpreadsheet,
   FileText,
   FileVideo,
-} from "lucide-vue-next";
+} from "@lucide/vue";
 
 // All lucide icons share the same component shape; derive the type from one so
 // we don't depend on an internal exported type name.

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { Eye, EyeOff } from "lucide-vue-next";
+import { Eye, EyeOff } from "@lucide/vue";
 import Input from "./Input.vue";
 
 // Don't let fall-through attributes (e.g. aria-invalid) land on the wrapper

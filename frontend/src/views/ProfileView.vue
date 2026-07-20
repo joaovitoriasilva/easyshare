@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { Calendar, HardDrive, Mail, Shield, User as UserIcon } from "lucide-vue-next";
+import { Calendar, HardDrive, Mail, Shield, User as UserIcon } from "@lucide/vue";
 import { authApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { StorageUsage } from "@/api/types";

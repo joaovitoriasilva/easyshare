@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
-import { Package2, LogOut, Menu, X } from "lucide-vue-next";
+import { Package2, LogOut, Menu, X } from "@lucide/vue";
 import { useAuthStore } from "@/stores/auth";
 import { Button, Toaster, ConfirmDialog, NavigationProgress } from "@/components/ui";
 import ThemeToggle from "@/components/ThemeToggle.vue";

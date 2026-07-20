@@ -1,5 +1,5 @@
 import type { Component } from "vue";
-import { AlertCircle, AlertTriangle, CheckCircle2, Info } from "lucide-vue-next";
+import { AlertCircle, AlertTriangle, CheckCircle2, Info } from "@lucide/vue";
 
 /** Severity vocabulary shared by inline alerts and toasts. */
 export type Severity = "info" | "success" | "warning" | "error";

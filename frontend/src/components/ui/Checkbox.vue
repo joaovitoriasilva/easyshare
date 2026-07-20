@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { CheckboxIndicator, CheckboxRoot } from "reka-ui";
-import { Check } from "lucide-vue-next";
+import { Check } from "@lucide/vue";
 import { cn } from "@/lib/utils";
 
 const props = defineProps<{ modelValue?: boolean; class?: string }>();

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { Download, Lock, MailCheck, Package2, X } from "lucide-vue-next";
+import { Download, Lock, MailCheck, Package2, X } from "@lucide/vue";
 import { publicApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { PublicShare } from "@/api/types";

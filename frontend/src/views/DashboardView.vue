@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { RouterLink, useRouter } from "vue-router";
-import { FileArchive, Plus, Search, Share2, Upload } from "lucide-vue-next";
+import { FileArchive, Plus, Search, Share2, Upload } from "@lucide/vue";
 import { authApi, packagesApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { PackageListItem, StorageUsage } from "@/api/types";

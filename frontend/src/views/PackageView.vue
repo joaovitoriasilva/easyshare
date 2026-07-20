@@ -13,7 +13,7 @@ import {
   Trash2,
   Upload,
   X,
-} from "lucide-vue-next";
+} from "@lucide/vue";
 import { packagesApi, sharesApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { Package, PackageFile, PackageStats, Share, Visibility } from "@/api/types";

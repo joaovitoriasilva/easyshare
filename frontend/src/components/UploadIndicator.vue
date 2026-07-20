@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { RouterLink } from "vue-router";
-import { Loader2 } from "lucide-vue-next";
+import { Loader2 } from "@lucide/vue";
 import { useUploads } from "@/composables/useUploads";
 import { formatDuration, formatRate } from "@/lib/format";
 
