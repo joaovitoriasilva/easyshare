@@ -11,6 +11,10 @@ Thumbs.db
 .env
 .env.*
 
+# Dev notes
+devdocs/
+devscripts/
+
 # Docker compose files
 docker-compose.yml
 
