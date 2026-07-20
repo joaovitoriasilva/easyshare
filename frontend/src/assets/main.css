@@ -55,3 +55,18 @@
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   }
 }
+
+/* Respect users who ask their OS for reduced motion: neutralise CSS animations
+   and transitions app-wide (skeleton pulse, navigation-progress fade, toast and
+   hover transitions) while leaving content fully usable. Unlayered so it
+   reliably overrides Tailwind's layered utilities. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

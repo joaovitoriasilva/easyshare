@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -18,6 +19,15 @@ from app.core.config import settings
 # is memory-hard. pwdlib also replaces passlib, which is unmaintained and stops
 # working on Python 3.13+ (the minimum this project targets).
 _password_hash = PasswordHash((Argon2Hasher(),))
+
+# Argon2id is deliberately memory- and CPU-hard, and password hashing runs on
+# the request-handling threadpool (all routes are sync). Without a bound, a
+# burst of logins/registrations could run many hashes at once — multiplying the
+# memory-hard cost (risking OOM) and saturating every CPU core — which would
+# stall unrelated requests sharing that threadpool. This bounded semaphore caps
+# how many hashes run concurrently; excess auth requests queue briefly instead
+# of degrading the whole instance.
+_hash_semaphore = threading.BoundedSemaphore(settings.password_hash_concurrency)
 
 # A throwaway hash computed once at import so the "user not found" login branch
 # can perform the same Argon2 work as a real verify. Without it that branch
@@ -39,13 +49,15 @@ _DOWNLOAD_TOKEN_TTL = timedelta(minutes=5)
 
 
 def hash_password(password: str) -> str:
-    """Hash a plaintext password using Argon2id."""
-    return _password_hash.hash(password)
+    """Hash a plaintext password using Argon2id (bounded concurrency)."""
+    with _hash_semaphore:
+        return _password_hash.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a plaintext password against a stored Argon2 hash."""
-    return _password_hash.verify(plain_password, hashed_password)
+    with _hash_semaphore:
+        return _password_hash.verify(plain_password, hashed_password)
 
 
 def dummy_verify() -> None:
@@ -56,7 +68,8 @@ def dummy_verify() -> None:
     Always performs a full Argon2 verify and discards the (always ``False``)
     result.
     """
-    _password_hash.verify(secrets.token_urlsafe(32), _DUMMY_HASH)
+    with _hash_semaphore:
+        _password_hash.verify(secrets.token_urlsafe(32), _DUMMY_HASH)
 
 
 def create_access_token(

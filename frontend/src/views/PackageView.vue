@@ -283,11 +283,23 @@ async function removeFile(fileId: number): Promise<void> {
   if (!confirmed) {
     return;
   }
+  const current = pkg.value;
+  if (!current) {
+    return;
+  }
+  // Optimistically drop the file; restore the list if the request fails.
+  const previous = current.files;
+  current.files = previous.filter((file) => file.id !== fileId);
+  if (selectedFiles.value.has(fileId)) {
+    const nextSelected = new Set(selectedFiles.value);
+    nextSelected.delete(fileId);
+    selectedFiles.value = nextSelected;
+  }
   try {
     await packagesApi.removeFile(packageId, fileId);
-    pkg.value = await packagesApi.get(packageId);
     toast.success("File removed");
   } catch (err) {
+    current.files = previous;
     toast.error(err instanceof ApiError ? err.message : "Failed to remove file");
   }
 }
@@ -305,12 +317,19 @@ async function removeAllFiles(): Promise<void> {
   if (!confirmed) {
     return;
   }
+  const current = pkg.value;
+  if (!current) {
+    return;
+  }
+  // Optimistically clear the list; restore it if the request fails.
+  const previous = current.files;
+  current.files = [];
+  selectedFiles.value = new Set();
   try {
     await packagesApi.removeAllFiles(packageId);
-    pkg.value = await packagesApi.get(packageId);
-    selectedFiles.value = new Set();
     toast.success("All files removed");
   } catch (err) {
+    current.files = previous;
     toast.error(err instanceof ApiError ? err.message : "Failed to remove files");
   }
 }
@@ -329,12 +348,20 @@ async function deleteSelectedFiles(): Promise<void> {
   if (!confirmed) {
     return;
   }
+  const current = pkg.value;
+  if (!current) {
+    return;
+  }
+  // Optimistically drop the selected files; restore them if the request fails.
+  const idSet = new Set(ids);
+  const previous = current.files;
+  current.files = previous.filter((file) => !idSet.has(file.id));
+  selectedFiles.value = new Set();
   try {
     await packagesApi.removeAllFiles(packageId, ids);
-    pkg.value = await packagesApi.get(packageId);
-    selectedFiles.value = new Set();
     toast.success("Files removed");
   } catch (err) {
+    current.files = previous;
     toast.error(err instanceof ApiError ? err.message : "Failed to remove files");
   }
 }

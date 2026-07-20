@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
@@ -46,6 +47,14 @@ class Settings(BaseSettings):
     # Lifetime of the opaque token that authorises restricted-share downloads.
     share_access_token_expire_minutes: int = 30
     algorithm: str = "HS256"
+    # Maximum number of Argon2id password hashes computed at once. Hashing is
+    # memory- and CPU-hard and runs on the sync-route threadpool, so this bounds
+    # how much memory and CPU a burst of logins/registrations can consume;
+    # requests beyond the limit queue briefly instead of exhausting the pool.
+    # Defaults to the CPU count (at least 2, capped at 8).
+    password_hash_concurrency: int = Field(
+        default_factory=lambda: max(2, min(os.cpu_count() or 2, 8)), ge=1
+    )
     allow_registration: bool = True
 
     # Database
@@ -131,9 +140,10 @@ class Settings(BaseSettings):
 
     # Audit log retention. When ``audit_retention_days`` is positive a
     # background task periodically deletes audit events older than that many
-    # days; 0 (the default) keeps them indefinitely.
+    # days; set it to 0 to keep them indefinitely. Defaults to 30 days so the
+    # table cannot grow without bound on a long-running instance.
     # ``audit_prune_interval_hours`` controls how often that task runs.
-    audit_retention_days: int = Field(default=0, ge=0)
+    audit_retention_days: int = Field(default=30, ge=0)
     audit_prune_interval_hours: int = Field(default=24, ge=1)
 
     @field_validator("cors_origins", mode="before")

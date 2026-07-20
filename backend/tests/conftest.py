@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from app.api.deps import get_db
 from app.core import audit as audit_module
+from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.db.session import Base
 from app.main import app
@@ -21,6 +22,12 @@ from sqlalchemy.pool import StaticPool
 # Rate limiting is disabled by default in tests; the dedicated rate-limit test
 # re-enables it explicitly.
 limiter.enabled = False
+
+# Keep the audit-retention background loop out of tests: with a positive default
+# it would start under the TestClient lifespan and prune the shared in-memory
+# database concurrently with test requests. The pruning logic is covered
+# directly in test_audit.py.
+settings.audit_retention_days = 0
 
 
 @pytest.fixture

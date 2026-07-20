@@ -15,6 +15,7 @@ from fastapi import (
 )
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select, update
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import DbSession
 from app.core.audit import record_event
@@ -27,7 +28,13 @@ from app.core.security import (
     hash_verification_code,
     verify_verification_code,
 )
-from app.models.models import PackageFile, Share, ShareAccessCode, ShareVisibility
+from app.models.models import (
+    Package,
+    PackageFile,
+    Share,
+    ShareAccessCode,
+    ShareVisibility,
+)
 from app.schemas.schemas import (
     PublicFile,
     PublicShareRead,
@@ -42,7 +49,17 @@ router = APIRouter(prefix="/s", tags=["public"])
 
 
 def _get_active_share(db: DbSession, token: str) -> Share:
-    share = db.scalar(select(Share).where(Share.token == token))
+    # Eager-load the package, its files and the allow-list up front so the hot
+    # public view/download paths don't fan out into several lazy follow-up
+    # queries while building the response.
+    share = db.scalar(
+        select(Share)
+        .where(Share.token == token)
+        .options(
+            selectinload(Share.package).selectinload(Package.files),
+            selectinload(Share.allowed_emails),
+        )
+    )
     if share is None or not share.is_enabled or _is_expired(share):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Share not found"
