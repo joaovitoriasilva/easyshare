@@ -18,7 +18,7 @@ RUN npm run build
 # Stage 2: resolve production dependencies from the lock into a hash-pinned
 # requirements.txt (dev group excluded; the project itself is excluded because
 # it is run from source, not installed as a wheel).
-FROM python:3.13-slim@sha256:6771159cd4fa5d9bba1258caf0b82e6b73458c694d178ad97c5e925c2d0e1a91 AS requirements
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS requirements
 WORKDIR /tmp/backend
 COPY --from=uv-dist /uv /uvx /usr/local/bin/
 COPY backend/pyproject.toml backend/uv.lock ./
@@ -35,7 +35,7 @@ RUN extra_flags=""; \
     uv export --no-emit-project --no-dev $extra_flags -o requirements.txt
 
 # Stage 3: backend + bundled frontend
-FROM python:3.13-slim@sha256:6771159cd4fa5d9bba1258caf0b82e6b73458c694d178ad97c5e925c2d0e1a91
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1

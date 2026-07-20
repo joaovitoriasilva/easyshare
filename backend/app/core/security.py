@@ -21,7 +21,7 @@ from app.core.utils import normalize_email
 
 # Argon2id for password hashing: unlike bcrypt it has no 72-byte input limit and
 # is memory-hard. pwdlib also replaces passlib, which is unmaintained and stops
-# working on Python 3.13+ (the minimum this project targets).
+# working on Python 3.14+ (the minimum this project targets).
 _password_hash = PasswordHash((Argon2Hasher(),))
 
 # Argon2id is deliberately memory- and CPU-hard, and password hashing runs on
