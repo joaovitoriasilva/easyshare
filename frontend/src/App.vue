@@ -171,7 +171,18 @@ function logout(): void {
           <Package2 class="h-4 w-4" />
           EasyShare
         </span>
-        <span>{{ yearRange }} • v0.5.0</span>
+        <span class="flex items-center">
+          {{ yearRange }} • v0.5.1 •
+          <a
+            href="https://codeberg.org/joaovitoriasilva/easyshare"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="EasyShare source code on Codeberg"
+            class="text-muted-foreground hover:text-foreground ms-1"
+          >
+            Codeberg
+          </a>
+        </span>
       </div>
     </footer>
     <Toaster />
