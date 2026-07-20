@@ -68,6 +68,11 @@
   },
   "packageRules": [
     {
+      "description": "Hold TypeScript on the 6.x line: 7.0 is the native (Go) compiler that vue-tsc, openapi-typescript and typescript-eslint cannot consume yet.",
+      "matchPackageNames": ["typescript"],
+      "allowedVersions": "<7"
+    },
+    {
       "matchUpdateTypes": [
         "minor",
         "patch"

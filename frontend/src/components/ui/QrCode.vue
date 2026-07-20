@@ -66,7 +66,7 @@ defineExpose({ download });
 <template>
   <div
     ref="root"
-    class="inline-flex items-center justify-center rounded-md bg-white p-3 shadow-sm ring-1 ring-black/5"
+    class="inline-flex items-center justify-center rounded-md bg-white p-3 shadow-xs ring-1 ring-black/5"
     role="img"
     :aria-label="label"
   >

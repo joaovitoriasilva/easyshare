@@ -22,7 +22,7 @@ const { toasts, dismiss } = useToasts();
       <div
         v-for="toast in toasts"
         :key="toast.id"
-        class="pointer-events-auto flex w-full max-w-sm items-start gap-2 rounded-md border px-3 py-2 text-sm shadow-lg backdrop-blur-sm"
+        class="pointer-events-auto flex w-full max-w-sm items-start gap-2 rounded-md border px-3 py-2 text-sm shadow-lg backdrop-blur-xs"
         :class="severityClasses[toast.kind]"
         role="status"
         aria-live="polite"
@@ -31,7 +31,7 @@ const { toasts, dismiss } = useToasts();
         <span class="flex-1">{{ toast.message }}</span>
         <button
           type="button"
-          class="inline-flex size-5 shrink-0 items-center justify-center rounded-md opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          class="inline-flex size-5 shrink-0 items-center justify-center rounded-md opacity-70 transition-opacity hover:opacity-100 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           aria-label="Dismiss notification"
           @click="dismiss(toast.id)"
         >

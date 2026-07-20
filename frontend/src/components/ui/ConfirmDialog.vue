@@ -27,7 +27,7 @@ function onOpenChange(open: boolean): void {
     <AlertDialogPortal>
       <AlertDialogOverlay class="fixed inset-0 z-[90] bg-black/50" />
       <AlertDialogContent
-        class="fixed left-1/2 top-1/2 z-[100] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-card p-4 text-card-foreground shadow-lg focus:outline-none"
+        class="fixed left-1/2 top-1/2 z-[100] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-card p-4 text-card-foreground shadow-lg focus:outline-hidden"
       >
         <AlertDialogTitle class="text-lg font-semibold">{{ state.title }}</AlertDialogTitle>
         <AlertDialogDescription class="mt-2 text-sm text-muted-foreground">
