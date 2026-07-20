@@ -103,8 +103,18 @@ export const packagesApi = {
       method: "DELETE",
     });
   },
-  removeAllFiles(packageId: number): Promise<void> {
-    return api.request<void>(`/packages/${packageId}/files`, { method: "DELETE" });
+  removeAllFiles(packageId: number, fileIds?: number[]): Promise<void> {
+    const query = new URLSearchParams();
+    if (fileIds) {
+      for (const fileId of fileIds) {
+        query.append("file_ids", String(fileId));
+      }
+    }
+    const qs = query.toString();
+    return api.request<void>(
+      `/packages/${packageId}/files${qs ? `?${qs}` : ""}`,
+      { method: "DELETE" },
+    );
   },
   stats(id: number): Promise<PackageStats> {
     return api.request<PackageStats>(`/packages/${id}/stats`);
@@ -117,8 +127,15 @@ export const packagesApi = {
   fileDownloadUrl(id: number, fileId: number, token: string): string {
     return `/api/packages/${id}/files/${fileId}/download?token=${encodeURIComponent(token)}`;
   },
-  downloadAllUrl(id: number, token: string): string {
-    return `/api/packages/${id}/download?token=${encodeURIComponent(token)}`;
+  downloadAllUrl(id: number, token: string, fileIds?: number[]): string {
+    const params = new URLSearchParams();
+    params.set("token", token);
+    if (fileIds) {
+      for (const fileId of fileIds) {
+        params.append("file_ids", String(fileId));
+      }
+    }
+    return `/api/packages/${id}/download?${params.toString()}`;
   },
 };
 
@@ -130,10 +147,15 @@ export const sharesApi = {
     packageId: number,
     visibility: Visibility,
     allowedEmails: string[],
+    expiresAt?: string | null,
   ): Promise<Share> {
     return api.request<Share>(`/packages/${packageId}/share`, {
       method: "POST",
-      body: { visibility, allowed_emails: allowedEmails },
+      body: {
+        visibility,
+        allowed_emails: allowedEmails,
+        expires_at: expiresAt ?? null,
+      },
     });
   },
   update(
@@ -142,6 +164,7 @@ export const sharesApi = {
       visibility?: Visibility;
       is_enabled?: boolean;
       allowed_emails?: string[];
+      expires_at?: string | null;
     },
   ): Promise<Share> {
     return api.request<Share>(`/packages/${packageId}/share`, {
@@ -157,10 +180,18 @@ export const sharesApi = {
 export const publicApi = {
   view(token: string): Promise<PublicShare> {
     return api.request<PublicShare>(`/s/${token}`, { auth: false });
-  },  access(token: string, email: string): Promise<PublicShare> {
+  },
+  access(token: string, email: string): Promise<PublicShare> {
     return api.request<PublicShare>(`/s/${token}/access`, {
       method: "POST",
       body: { email },
+      auth: false,
+    });
+  },
+  verify(token: string, email: string, code: string): Promise<PublicShare> {
+    return api.request<PublicShare>(`/s/${token}/verify`, {
+      method: "POST",
+      body: { email, code },
       auth: false,
     });
   },

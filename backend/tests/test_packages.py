@@ -394,6 +394,79 @@ def test_delete_all_files(client: TestClient) -> None:
     assert pkg["files"] == []
 
 
+def test_delete_selected_files(client: TestClient) -> None:
+    headers = register_and_login(client)
+    pkg_id = _create_package(client, headers)
+    first = client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("a.txt", io.BytesIO(b"aaa"), "text/plain")},
+        headers=headers,
+    ).json()["id"]
+    second = client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("b.txt", io.BytesIO(b"bbb"), "text/plain")},
+        headers=headers,
+    ).json()["id"]
+
+    resp = client.delete(
+        f"/api/packages/{pkg_id}/files",
+        params={"file_ids": [first]},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+
+    remaining = client.get(f"/api/packages/{pkg_id}", headers=headers).json()["files"]
+    assert [f["id"] for f in remaining] == [second]
+
+
+def test_download_selected_owned_files_as_zip(client: TestClient) -> None:
+    headers = register_and_login(client)
+    pkg_id = _create_package(client, headers)
+    first = client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("a.txt", io.BytesIO(b"aaa"), "text/plain")},
+        headers=headers,
+    ).json()["id"]
+    client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("b.txt", io.BytesIO(b"bbb"), "text/plain")},
+        headers=headers,
+    )
+    token = client.post(
+        f"/api/packages/{pkg_id}/download-token", headers=headers
+    ).json()["token"]
+
+    resp = client.get(
+        f"/api/packages/{pkg_id}/download",
+        params={"token": token, "file_ids": [first]},
+    )
+    assert resp.status_code == 200
+    archive = zipfile.ZipFile(io.BytesIO(resp.content))
+    assert archive.namelist() == ["a.txt"]
+
+
+def test_package_stats_reports_last_downloaded_at(client: TestClient) -> None:
+    headers = register_and_login(client)
+    pkg_id = _create_package(client, headers)
+    file_id = client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("a.txt", io.BytesIO(b"aaa"), "text/plain")},
+        headers=headers,
+    ).json()["id"]
+    token = client.post(
+        f"/api/packages/{pkg_id}/share", json={}, headers=headers
+    ).json()["token"]
+
+    # No downloads yet.
+    before = client.get(f"/api/packages/{pkg_id}/stats", headers=headers).json()
+    assert before["last_downloaded_at"] is None
+
+    client.get(f"/api/s/{token}/files/{file_id}/download")
+
+    after = client.get(f"/api/packages/{pkg_id}/stats", headers=headers).json()
+    assert after["last_downloaded_at"] is not None
+
+
 def test_upload_respects_per_user_quota(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

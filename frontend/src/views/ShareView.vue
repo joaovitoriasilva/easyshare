@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { Download, Lock, Package2 } from "lucide-vue-next";
+import { Download, Lock, MailCheck, Package2 } from "lucide-vue-next";
 import { publicApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { PublicShare } from "@/api/types";
 import { formatBytes } from "@/lib/format";
 import { downloadUrl } from "@/lib/download";
+import { fileIcon } from "@/lib/fileIcon";
 import { isValidEmail } from "@/lib/validation";
 import { useToasts } from "@/composables/useToasts";
 import {
@@ -34,6 +35,12 @@ const error = ref<string | null>(null);
 const email = ref("");
 const unlocked = ref(false);
 const selected = ref<Set<number>>(new Set());
+
+// Restricted shares with email verification: after /access emails a code, the
+// recipient confirms it here before the files are revealed.
+const awaitingCode = ref(false);
+const code = ref("");
+const codeValid = computed(() => code.value.trim().length >= 4);
 
 const emailValid = computed(() => isValidEmail(email.value));
 const showEmailError = computed(() => email.value.length > 0 && !emailValid.value);
@@ -63,13 +70,40 @@ async function load(): Promise<void> {
 async function unlock(): Promise<void> {
   error.value = null;
   try {
-    share.value = await publicApi.access(token, email.value);
-    downloadToken.value = share.value.download_token ?? null;
+    const result = await publicApi.access(token, email.value);
+    share.value = result;
+    if (result.verification_required) {
+      awaitingCode.value = true;
+      code.value = "";
+      toast.info("We emailed you a verification code.");
+      return;
+    }
+    downloadToken.value = result.download_token ?? null;
     unlocked.value = true;
     toast.success("Access granted");
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Access denied";
   }
+}
+
+async function verify(): Promise<void> {
+  error.value = null;
+  try {
+    const result = await publicApi.verify(token, email.value, code.value.trim());
+    share.value = result;
+    downloadToken.value = result.download_token ?? null;
+    unlocked.value = true;
+    awaitingCode.value = false;
+    toast.success("Access granted");
+  } catch (err) {
+    error.value =
+      err instanceof ApiError ? err.message : "Invalid or expired code";
+  }
+}
+
+function resendCode(): void {
+  code.value = "";
+  void unlock();
 }
 
 function toggle(id: number): void {
@@ -139,7 +173,7 @@ onMounted(load);
         </CardHeader>
 
         <CardContent>
-          <div v-if="!unlocked" class="space-y-4">
+          <div v-if="!unlocked && !awaitingCode" class="space-y-4">
             <div class="flex items-center gap-2 text-sm text-muted-foreground">
               <Lock class="h-4 w-4" />
               This share is restricted. Enter an authorised email to continue.
@@ -153,6 +187,33 @@ onMounted(load);
               </div>
               <Alert v-if="error" kind="error">{{ error }}</Alert>
               <Button type="submit" :disabled="!emailValid">Unlock</Button>
+            </form>
+          </div>
+
+          <div v-else-if="awaitingCode" class="space-y-4">
+            <div class="flex items-center gap-2 text-sm text-muted-foreground">
+              <MailCheck class="h-4 w-4" />
+              Enter the code we emailed to
+              <span class="font-medium text-foreground">{{ email }}</span>.
+            </div>
+            <form class="space-y-3" @submit.prevent="verify">
+              <div class="space-y-2">
+                <Label for="code">Verification code</Label>
+                <Input
+                  id="code"
+                  v-model="code"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  placeholder="123456"
+                />
+              </div>
+              <Alert v-if="error" kind="error">{{ error }}</Alert>
+              <div class="flex flex-wrap items-center gap-2">
+                <Button type="submit" :disabled="!codeValid">Verify</Button>
+                <Button type="button" variant="ghost" @click="resendCode">
+                  Resend code
+                </Button>
+              </div>
             </form>
           </div>
 
@@ -178,6 +239,10 @@ onMounted(load);
                   <Checkbox
                     :model-value="selected.has(file.id)"
                     @update:model-value="() => toggle(file.id)"
+                  />
+                  <component
+                    :is="fileIcon(file.filename)"
+                    class="h-4 w-4 shrink-0 text-muted-foreground"
                   />
                   <span class="min-w-0">
                     <span class="block truncate text-sm font-medium">{{ file.filename }}</span>

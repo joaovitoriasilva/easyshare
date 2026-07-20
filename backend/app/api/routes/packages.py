@@ -33,8 +33,6 @@ from app.services.quota import total_storage_used, user_storage_used
 from app.services.storage import FileTooLargeError, storage
 from app.services.validation import sanitize_upload_filename
 
-_VIEW_ACTIONS = ("share.view", "share.access.granted")
-
 router = APIRouter(prefix="/packages", tags=["packages"])
 
 
@@ -115,27 +113,20 @@ def get_package(package: OwnedPackage) -> Package:
 def get_package_stats(package: OwnedPackage, db: DbSession) -> PackageStats:
     """Aggregate share view/download counters for an owned package.
 
-    View and download totals come from a single grouped ``COUNT`` over the
-    audit log. Per-file download counts are read straight from each file's
+    Views are read from the share's denormalised ``view_count``; download totals
+    (and the most recent download time) come from a single grouped query over
+    the audit log. Per-file download counts are read straight from each file's
     denormalised ``download_count`` column (kept current on every share
     download), so the endpoint no longer scans and JSON-parses every download
     event.
     """
-    counts = db.execute(
-        select(AuditEvent.action, func.count())
-        .where(
+    downloads_count, last_downloaded_at = db.execute(
+        select(func.count(), func.max(AuditEvent.created_at)).where(
             AuditEvent.package_id == package.id,
-            AuditEvent.action.in_((*_VIEW_ACTIONS, "share.download")),
+            AuditEvent.action == "share.download",
         )
-        .group_by(AuditEvent.action)
-    )
-    views = 0
-    downloads = 0
-    for action, count in counts:
-        if action in _VIEW_ACTIONS:
-            views += count
-        else:
-            downloads += count
+    ).one()
+    views = package.share.view_count if package.share is not None else 0
 
     file_downloads = {
         file_id: count
@@ -146,7 +137,12 @@ def get_package_stats(package: OwnedPackage, db: DbSession) -> PackageStats:
             )
         )
     }
-    return PackageStats(views=views, downloads=downloads, file_downloads=file_downloads)
+    return PackageStats(
+        views=views,
+        downloads=downloads_count or 0,
+        file_downloads=file_downloads,
+        last_downloaded_at=last_downloaded_at,
+    )
 
 
 @router.patch("/{package_id}", response_model=PackageRead)
@@ -206,7 +202,9 @@ def upload_file(
         remaining_user = per_user_quota - user_storage_used(db, package.owner_id)
         limits.append((remaining_user, "Upload would exceed your storage quota"))
     if settings.storage_quota_total > 0:
-        remaining_total = settings.storage_quota_total - total_storage_used(db)
+        remaining_total = settings.storage_quota_total - total_storage_used(
+            db, use_cache=True
+        )
         limits.append(
             (remaining_total, "Upload would exceed the server storage limit")
         )
@@ -284,9 +282,20 @@ def download_owned_file(
 
 @router.get("/{package_id}/download")
 @limiter.limit(EXPENSIVE)
-def download_all_files(package: DownloadablePackage, request: Request) -> FileResponse:
-    """Download every file in a package as a single zip archive."""
+def download_all_files(
+    package: DownloadablePackage,
+    request: Request,
+    file_ids: list[int] | None = Query(default=None),
+) -> FileResponse:
+    """Download a package as a zip archive.
+
+    Owners may pass ``file_ids`` repeatedly to archive a specific subset;
+    omitting it includes every file in the package.
+    """
     files = list(package.files)
+    if file_ids:
+        wanted = set(file_ids)
+        files = [file for file in files if file.id in wanted]
     validate_archive_request(files, empty_detail="No files to download")
     return build_archive_download(files, package_name=package.name)
 
@@ -301,10 +310,23 @@ def delete_file(record: OwnedFile, db: DbSession) -> MessageResponse:
 
 
 @router.delete("/{package_id}/files", response_model=MessageResponse)
-def delete_all_files(package: OwnedPackage, db: DbSession) -> MessageResponse:
-    """Delete every file in a package, keeping the package itself."""
-    for file in package.files:
+def delete_all_files(
+    package: OwnedPackage,
+    db: DbSession,
+    file_ids: list[int] | None = Query(default=None),
+) -> MessageResponse:
+    """Delete files from a package, keeping the package itself.
+
+    Owners may pass ``file_ids`` repeatedly to delete a specific subset;
+    omitting it deletes every file in the package.
+    """
+    wanted = set(file_ids) if file_ids else None
+    removed = 0
+    for file in list(package.files):
+        if wanted is not None and file.id not in wanted:
+            continue
         storage.delete(file.storage_key)
         db.delete(file)
+        removed += 1
     db.commit()
-    return MessageResponse(detail="All files deleted")
+    return MessageResponse(detail=f"Deleted {removed} file(s)")

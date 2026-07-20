@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -10,18 +11,24 @@ from sqlalchemy import select, update
 
 from app.api.deps import DbSession
 from app.core.audit import record_event
+from app.core.config import settings
 from app.core.rate_limit import DOWNLOAD, EXPENSIVE, SENSITIVE, limiter
 from app.core.security import (
     create_share_access_token,
     decode_share_access_token,
+    generate_verification_code,
+    hash_verification_code,
+    verify_verification_code,
 )
-from app.models.models import PackageFile, Share, ShareVisibility
+from app.models.models import PackageFile, Share, ShareAccessCode, ShareVisibility
 from app.schemas.schemas import (
     PublicFile,
     PublicShareRead,
     ShareAccessRequest,
+    ShareVerifyRequest,
 )
 from app.services.archive import build_archive_download, validate_archive_request
+from app.services.email import send_share_verification_code
 from app.services.storage import storage
 
 router = APIRouter(prefix="/s", tags=["public"])
@@ -29,11 +36,23 @@ router = APIRouter(prefix="/s", tags=["public"])
 
 def _get_active_share(db: DbSession, token: str) -> Share:
     share = db.scalar(select(Share).where(Share.token == token))
-    if share is None or not share.is_enabled:
+    if share is None or not share.is_enabled or _is_expired(share):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Share not found"
         )
     return share
+
+
+def _is_expired(share: Share) -> bool:
+    """Return whether a share has passed its optional expiry time."""
+    if share.expires_at is None:
+        return False
+    expires = share.expires_at
+    # SQLite returns naive datetimes; treat a stored value as UTC so the
+    # comparison against an aware "now" never raises.
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=UTC)
+    return expires <= datetime.now(UTC)
 
 
 def _email_allowed(share: Share, email: str) -> bool:
@@ -99,7 +118,11 @@ def _files_payload(share: Share) -> list[PublicFile]:
 
 
 def _public_share_read(
-    share: Share, *, reveal_files: bool, download_token: str | None = None
+    share: Share,
+    *,
+    reveal_files: bool,
+    download_token: str | None = None,
+    verification_required: bool = False,
 ) -> PublicShareRead:
     """Build the public view of a share, optionally revealing its file list."""
     return PublicShareRead(
@@ -110,22 +133,109 @@ def _public_share_read(
         requires_email=share.visibility == ShareVisibility.RESTRICTED,
         files=_files_payload(share) if reveal_files else [],
         download_token=download_token,
+        verification_required=verification_required,
     )
 
 
 @router.get("/{token}", response_model=PublicShareRead)
+@limiter.limit(DOWNLOAD)
 def view_share(token: str, db: DbSession, request: Request) -> PublicShareRead:
-    """View share metadata. Files are hidden for restricted shares."""
+    """View share metadata. Files are hidden for restricted shares.
+
+    Each view bumps a denormalised counter on the share rather than writing an
+    audit row, so a heavily crawled or refreshed public link cannot amplify into
+    unbounded audit-table writes. The endpoint is also rate-limited.
+    """
     share = _get_active_share(db, token)
-    record_event(
-        "share.view",
-        request=request,
-        target=f"share:{token[:8]}",
-        package_id=share.package_id,
-    )
-    return _public_share_read(
+    response = _public_share_read(
         share, reveal_files=share.visibility != ShareVisibility.RESTRICTED
     )
+    db.execute(
+        update(Share).where(Share.id == share.id).values(view_count=Share.view_count + 1)
+    )
+    db.commit()
+    return response
+
+
+def _email_verification_required(share: Share) -> bool:
+    """Whether unlocking this share needs an emailed one-time code."""
+    return (
+        settings.email_verification_enabled
+        and share.visibility == ShareVisibility.RESTRICTED
+    )
+
+
+def _issue_verification_code(db: DbSession, share: Share, email: str) -> None:
+    """Generate, persist (replacing any prior) and email a one-time code.
+
+    The code is committed before the (potentially slow) email send so a delivery
+    failure never loses it; the plaintext is emailed but only its keyed hash is
+    stored.
+    """
+    normalized = email.strip().lower()
+    code = generate_verification_code()
+    code_hash = hash_verification_code(share.id, normalized, code)
+    expires = datetime.now(UTC) + timedelta(
+        minutes=settings.share_verification_code_ttl_minutes
+    )
+    # Read the package name before the commit below expires the ORM instance.
+    package_name = share.package.name
+    existing = db.scalar(
+        select(ShareAccessCode).where(
+            ShareAccessCode.share_id == share.id,
+            ShareAccessCode.email == normalized,
+        )
+    )
+    if existing is not None:
+        existing.code_hash = code_hash
+        existing.attempts = 0
+        existing.expires_at = expires
+    else:
+        db.add(
+            ShareAccessCode(
+                share_id=share.id,
+                email=normalized,
+                code_hash=code_hash,
+                expires_at=expires,
+            )
+        )
+    db.commit()
+    send_share_verification_code(normalized, code, package_name=package_name)
+
+
+def _consume_verification_code(
+    db: DbSession, share: Share, email: str, code: str
+) -> bool:
+    """Validate a submitted code, enforcing expiry and an attempt cap.
+
+    A correct code is single-use (deleted on success). Expired codes and codes
+    that exhaust the attempt budget are discarded so they cannot be retried.
+    """
+    normalized = email.strip().lower()
+    record = db.scalar(
+        select(ShareAccessCode).where(
+            ShareAccessCode.share_id == share.id,
+            ShareAccessCode.email == normalized,
+        )
+    )
+    if record is None:
+        return False
+    expires = record.expires_at
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=UTC)
+    if expires <= datetime.now(UTC) or (
+        record.attempts >= settings.share_verification_max_attempts
+    ):
+        db.delete(record)
+        db.commit()
+        return False
+    if verify_verification_code(share.id, normalized, code, record.code_hash):
+        db.delete(record)
+        db.commit()
+        return True
+    record.attempts += 1
+    db.commit()
+    return False
 
 
 @router.post("/{token}/access", response_model=PublicShareRead)
@@ -135,11 +245,41 @@ def access_share(
 ) -> PublicShareRead:
     """Unlock a restricted share by providing an allowed email address.
 
-    Returns a short-lived ``download_token`` that the recipient supplies on
-    subsequent download requests, so their email never travels in a URL.
+    When email verification is enabled, this only *starts* the flow: a one-time
+    code is emailed and the response asks the recipient to confirm it via
+    ``/verify`` (files stay hidden). To avoid revealing whether an address is
+    allow-listed, the response is identical whether or not the email is allowed;
+    a code is only actually sent to an allow-listed address. When email is not
+    configured the historical behaviour applies: knowing an allowed email grants
+    access immediately.
     """
     share = _get_active_share(db, token)
     email = str(payload.email)
+
+    if _email_verification_required(share):
+        if _email_allowed(share, email):
+            _issue_verification_code(db, share, email)
+            record_event(
+                "share.access.code_sent",
+                request=request,
+                actor=email,
+                target=f"share:{token[:8]}",
+                package_id=share.package_id,
+            )
+        else:
+            record_event(
+                "share.access.denied",
+                request=request,
+                actor=email,
+                target=f"share:{token[:8]}",
+                package_id=share.package_id,
+                detail={"reason": "not_allowed"},
+            )
+        # Uniform response regardless of allow-list membership.
+        return _public_share_read(
+            share, reveal_files=False, verification_required=True
+        )
+
     try:
         _authorize_email(share, email)
     except HTTPException as exc:
@@ -164,6 +304,52 @@ def access_share(
         if share.visibility == ShareVisibility.RESTRICTED
         else None
     )
+    return _public_share_read(share, reveal_files=True, download_token=download_token)
+
+
+@router.post("/{token}/verify", response_model=PublicShareRead)
+@limiter.limit(SENSITIVE)
+def verify_share(
+    request: Request, token: str, payload: ShareVerifyRequest, db: DbSession
+) -> PublicShareRead:
+    """Confirm the emailed one-time code and unlock a restricted share.
+
+    The email must still be on the allow-list (so removing an address revokes a
+    pending code) and the code must be correct, unexpired and within the attempt
+    budget. Success returns the same short-lived download token as the
+    no-verification path.
+    """
+    share = _get_active_share(db, token)
+    email = str(payload.email)
+    if not _email_verification_required(share):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification is not required for this share",
+        )
+    authorized = _email_allowed(share, email) and _consume_verification_code(
+        db, share, email, payload.code
+    )
+    if not authorized:
+        record_event(
+            "share.verify.denied",
+            request=request,
+            actor=email,
+            target=f"share:{token[:8]}",
+            package_id=share.package_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or expired verification code",
+        )
+    record_event(
+        "share.access.granted",
+        request=request,
+        actor=email,
+        target=f"share:{token[:8]}",
+        package_id=share.package_id,
+        detail={"via": "code"},
+    )
+    download_token = create_share_access_token(share.token, email.strip().lower())
     return _public_share_read(share, reveal_files=True, download_token=download_token)
 
 

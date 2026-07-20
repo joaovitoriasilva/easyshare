@@ -26,6 +26,7 @@ def _serialize(share: Share) -> ShareRead:
         visibility=share.visibility,
         is_enabled=share.is_enabled,
         created_at=share.created_at,
+        expires_at=share.expires_at,
         allowed_emails=[entry.email for entry in share.allowed_emails],
     )
 
@@ -84,6 +85,7 @@ def enable_share(
         token=generate_share_token(),
         visibility=payload.visibility,
         is_enabled=True,
+        expires_at=payload.expires_at,
     )
     _apply_emails(share, [str(e) for e in payload.allowed_emails])
     _require_restricted_has_emails(share)
@@ -133,6 +135,10 @@ def update_share(
         share.is_enabled = payload.is_enabled
     if payload.allowed_emails is not None:
         _apply_emails(share, [str(e) for e in payload.allowed_emails])
+    # ``expires_at`` is nullable, so distinguish "omitted" (leave unchanged)
+    # from an explicit ``null`` (clear the expiry) via the set-fields marker.
+    if "expires_at" in payload.model_fields_set:
+        share.expires_at = payload.expires_at
 
     _require_restricted_has_emails(share)
 

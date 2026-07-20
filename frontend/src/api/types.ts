@@ -3,6 +3,9 @@ export type Visibility = "public" | "restricted";
 export interface AuthConfig {
   allow_registration: boolean;
   max_file_size: number;
+  // Whether restricted shares require an emailed one-time code. When false the
+  // UI warns that allow-listed emails are accepted without verification.
+  email_verification_enabled: boolean;
 }
 
 export interface StorageUsage {
@@ -46,6 +49,7 @@ export interface PackageStats {
   views: number;
   downloads: number;
   file_downloads: Record<number, number>;
+  last_downloaded_at: string | null;
 }
 
 export interface PackagePage {
@@ -66,6 +70,8 @@ export interface Share {
   visibility: Visibility;
   is_enabled: boolean;
   created_at: string;
+  // ISO timestamp, or null when the share never expires.
+  expires_at: string | null;
   allowed_emails: string[];
 }
 
@@ -84,6 +90,9 @@ export interface PublicShare {
   requires_email: boolean;
   files: PublicFile[];
   download_token?: string | null;
+  // True when /access emailed a one-time code that must be confirmed via
+  // /verify before the files are revealed.
+  verification_required?: boolean;
 }
 
 export interface AuditEvent {
@@ -135,6 +144,7 @@ export interface ServiceSettings {
   cors_origins: string[];
   rate_limit_enabled: boolean;
   rate_limit_backend: string;
+  email_verification_enabled: boolean;
   log_level: string;
   log_format: string;
   audit_retention_days: number;

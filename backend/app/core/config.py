@@ -106,6 +106,25 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
     rate_limit_storage_uri: str = "memory://"
 
+    # Email / restricted-share verification. When ``smtp_host`` is set, unlocking
+    # a restricted share requires a one-time code emailed to the recipient
+    # (proving they control the address rather than merely knowing it). With no
+    # SMTP host configured the feature is disabled and restricted shares fall
+    # back to accepting any allow-listed email, so an operator must deliberately
+    # configure email to get verification.
+    smtp_host: str = ""
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str = ""
+    smtp_password: str = ""
+    # Envelope/From address; falls back to ``smtp_username`` when unset.
+    smtp_from: str = ""
+    smtp_use_tls: bool = True  # STARTTLS
+    smtp_timeout: int = Field(default=10, ge=1)
+    # One-time share-verification codes: how long a code stays valid and how many
+    # wrong guesses are allowed before it is invalidated (brute-force bound).
+    share_verification_code_ttl_minutes: int = Field(default=10, ge=1)
+    share_verification_max_attempts: int = Field(default=5, ge=1)
+
     # Logging / observability
     log_level: str = "INFO"
     log_format: str = "console"  # "console" (dev) or "json" (production)
@@ -187,6 +206,20 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment.lower() == "production"
+
+    @property
+    def email_verification_enabled(self) -> bool:
+        """Whether restricted shares require an emailed one-time code.
+
+        Enabled only when an SMTP host is configured; otherwise restricted
+        shares fall back to accepting any allow-listed email address.
+        """
+        return bool(self.smtp_host.strip())
+
+    @property
+    def smtp_sender(self) -> str:
+        """The From address for outgoing mail (falls back to the username)."""
+        return self.smtp_from.strip() or self.smtp_username.strip()
 
 
 @lru_cache

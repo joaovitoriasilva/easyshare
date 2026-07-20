@@ -72,6 +72,10 @@ const groups = computed<SettingGroup[]>(() => {
           label: "Share access token lifetime",
           value: duration(s.share_access_token_expire_minutes),
         },
+        {
+          label: "Restricted-share email verification",
+          value: yesNo(s.email_verification_enabled),
+        },
       ],
     },
     {

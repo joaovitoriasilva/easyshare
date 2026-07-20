@@ -4,8 +4,15 @@ from __future__ import annotations
 
 import io
 import zipfile
+from datetime import UTC, datetime, timedelta
 
+import pytest
+from app.api.routes import public as public_module
+from app.core.config import settings
+from app.models.models import ShareAccessCode
 from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.orm import sessionmaker
 
 from tests.conftest import register_and_login
 
@@ -304,3 +311,230 @@ def test_cannot_share_others_package(client: TestClient) -> None:
         headers=bob,
     )
     assert resp.status_code == 404
+
+
+# --- Share expiry ----------------------------------------------------------
+
+
+def test_share_with_future_expiry_is_accessible(client: TestClient) -> None:
+    headers = register_and_login(client)
+    pkg_id = _package_with_files(client, headers)
+    future = (datetime.now(UTC) + timedelta(days=1)).isoformat()
+    resp = client.post(
+        f"/api/packages/{pkg_id}/share",
+        json={"visibility": "public", "expires_at": future},
+        headers=headers,
+    )
+    assert resp.status_code == 201
+    assert resp.json()["expires_at"] is not None
+    token = resp.json()["token"]
+    assert client.get(f"/api/s/{token}").status_code == 200
+
+
+def test_expired_share_returns_404(client: TestClient) -> None:
+    headers = register_and_login(client)
+    pkg_id = _package_with_files(client, headers)
+    token = client.post(
+        f"/api/packages/{pkg_id}/share",
+        json={"visibility": "public"},
+        headers=headers,
+    ).json()["token"]
+
+    # Set the expiry into the past via the owner update endpoint.
+    past = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+    updated = client.patch(
+        f"/api/packages/{pkg_id}/share",
+        json={"expires_at": past},
+        headers=headers,
+    )
+    assert updated.status_code == 200
+    assert client.get(f"/api/s/{token}").status_code == 404
+
+
+def test_clearing_expiry_restores_access(client: TestClient) -> None:
+    headers = register_and_login(client)
+    pkg_id = _package_with_files(client, headers)
+    past = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+    token = client.post(
+        f"/api/packages/{pkg_id}/share",
+        json={"visibility": "public", "expires_at": past},
+        headers=headers,
+    ).json()["token"]
+    assert client.get(f"/api/s/{token}").status_code == 404
+
+    # An explicit null clears the expiry and re-enables the share.
+    client.patch(
+        f"/api/packages/{pkg_id}/share",
+        json={"expires_at": None},
+        headers=headers,
+    )
+    assert client.get(f"/api/s/{token}").status_code == 200
+
+
+# --- Restricted-share email verification -----------------------------------
+
+
+def _enable_email(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """Turn on email verification and capture the codes that would be sent."""
+    monkeypatch.setattr(settings, "smtp_host", "smtp.example.test")
+    captured: dict[str, str] = {}
+
+    def _capture(to: str, code: str, *, package_name: str) -> None:
+        captured["to"] = to
+        captured["code"] = code
+
+    monkeypatch.setattr(public_module, "send_share_verification_code", _capture)
+    return captured
+
+
+def _restricted_share(client: TestClient, headers: dict[str, str]) -> str:
+    pkg_id = _package_with_files(client, headers)
+    return client.post(
+        f"/api/packages/{pkg_id}/share",
+        json={"visibility": "restricted", "allowed_emails": ["guest@example.com"]},
+        headers=headers,
+    ).json()["token"]
+
+
+def test_config_reports_email_verification_flag(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert client.get("/api/auth/config").json()["email_verification_enabled"] is False
+    monkeypatch.setattr(settings, "smtp_host", "smtp.example.test")
+    assert client.get("/api/auth/config").json()["email_verification_enabled"] is True
+
+
+def test_access_sends_code_and_hides_files(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured = _enable_email(monkeypatch)
+    headers = register_and_login(client)
+    token = _restricted_share(client, headers)
+
+    resp = client.post(
+        f"/api/s/{token}/access", json={"email": "guest@example.com"}
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["verification_required"] is True
+    assert body["download_token"] is None
+    assert body["files"] == []
+    # A code was emailed to the allow-listed recipient.
+    assert captured.get("to") == "guest@example.com"
+    assert captured.get("code")
+
+
+def test_verify_with_correct_code_unlocks(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured = _enable_email(monkeypatch)
+    headers = register_and_login(client)
+    token = _restricted_share(client, headers)
+    client.post(f"/api/s/{token}/access", json={"email": "guest@example.com"})
+
+    resp = client.post(
+        f"/api/s/{token}/verify",
+        json={"email": "guest@example.com", "code": captured["code"]},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["download_token"]
+    assert len(body["files"]) == 2
+
+
+def test_verify_with_wrong_code_is_denied(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured = _enable_email(monkeypatch)
+    headers = register_and_login(client)
+    token = _restricted_share(client, headers)
+    client.post(f"/api/s/{token}/access", json={"email": "guest@example.com"})
+
+    wrong = "111111" if captured["code"] != "111111" else "222222"
+    resp = client.post(
+        f"/api/s/{token}/verify",
+        json={"email": "guest@example.com", "code": wrong},
+    )
+    assert resp.status_code == 403
+
+
+def test_verification_does_not_reveal_allow_list(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-allow-listed email gets the same response but no code is sent."""
+    captured = _enable_email(monkeypatch)
+    headers = register_and_login(client)
+    token = _restricted_share(client, headers)
+
+    resp = client.post(
+        f"/api/s/{token}/access", json={"email": "intruder@example.com"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["verification_required"] is True
+    # No code was sent to a non-allow-listed address.
+    assert captured == {}
+
+
+def test_verification_attempts_are_capped(
+    client: TestClient,
+    db_sessionmaker: sessionmaker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "share_verification_max_attempts", 1)
+    captured = _enable_email(monkeypatch)
+    headers = register_and_login(client)
+    token = _restricted_share(client, headers)
+    client.post(f"/api/s/{token}/access", json={"email": "guest@example.com"})
+
+    wrong = "111111" if captured["code"] != "111111" else "222222"
+    # First wrong guess exhausts the single-attempt budget.
+    assert (
+        client.post(
+            f"/api/s/{token}/verify",
+            json={"email": "guest@example.com", "code": wrong},
+        ).status_code
+        == 403
+    )
+    # Even the correct code is now rejected (the code was invalidated).
+    assert (
+        client.post(
+            f"/api/s/{token}/verify",
+            json={"email": "guest@example.com", "code": captured["code"]},
+        ).status_code
+        == 403
+    )
+
+
+def test_expired_verification_code_is_denied(
+    client: TestClient,
+    db_sessionmaker: sessionmaker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = _enable_email(monkeypatch)
+    headers = register_and_login(client)
+    token = _restricted_share(client, headers)
+    client.post(f"/api/s/{token}/access", json={"email": "guest@example.com"})
+
+    # Backdate the stored code so it is already expired.
+    with db_sessionmaker() as db:
+        record = db.scalar(select(ShareAccessCode))
+        assert record is not None
+        record.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        db.commit()
+
+    resp = client.post(
+        f"/api/s/{token}/verify",
+        json={"email": "guest@example.com", "code": captured["code"]},
+    )
+    assert resp.status_code == 403
+
+
+def test_verify_rejected_when_email_disabled(client: TestClient) -> None:
+    """With no SMTP configured the verify endpoint has nothing to confirm."""
+    headers = register_and_login(client)
+    token = _restricted_share(client, headers)
+    resp = client.post(
+        f"/api/s/{token}/verify",
+        json={"email": "guest@example.com", "code": "123456"},
+    )
+    assert resp.status_code == 400

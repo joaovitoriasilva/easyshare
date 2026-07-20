@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ArrowLeft, Download, Pencil, RotateCw, Trash2, Upload, X } from "lucide-vue-next";
+import { ArrowLeft, Calendar, Download, Pencil, RotateCw, Trash2, Upload, X } from "lucide-vue-next";
 import { packagesApi, sharesApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { Package, PackageStats, Share, Visibility } from "@/api/types";
 import { formatBytes } from "@/lib/format";
 import { downloadUrl } from "@/lib/download";
+import { copyText } from "@/lib/clipboard";
+import { fileIcon } from "@/lib/fileIcon";
 import { invalidEmails, parseEmailList } from "@/lib/validation";
 import { useToasts } from "@/composables/useToasts";
 import { useConfirm } from "@/composables/useConfirm";
@@ -20,6 +22,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Checkbox,
   Input,
   Label,
   Skeleton,
@@ -57,10 +60,99 @@ const savingDetails = ref(false);
 
 const visibility = ref<Visibility>("public");
 const emailsText = ref("");
+const expiresAt = ref(""); // <input type="datetime-local"> value (local time)
+
+// File list controls: filter text, sort key and multi-select for bulk actions.
+const fileFilter = ref("");
+const fileSort = ref<"name" | "size" | "date">("name");
+const selectedFiles = ref<Set<number>>(new Set());
 
 const shareLink = computed(() =>
   share.value ? `${window.location.origin}/s/${share.value.token}` : "",
 );
+
+const displayedFiles = computed(() => {
+  const files = pkg.value?.files ?? [];
+  const term = fileFilter.value.trim().toLowerCase();
+  const filtered = term
+    ? files.filter((file) => file.filename.toLowerCase().includes(term))
+    : files.slice();
+  filtered.sort((a, b) => {
+    if (fileSort.value === "size") {
+      return b.size - a.size;
+    }
+    if (fileSort.value === "date") {
+      return b.created_at.localeCompare(a.created_at);
+    }
+    return a.filename.localeCompare(b.filename);
+  });
+  return filtered;
+});
+
+const allFilesSelected = computed(
+  () =>
+    displayedFiles.value.length > 0 &&
+    displayedFiles.value.every((file) => selectedFiles.value.has(file.id)),
+);
+const hasFileSelection = computed(() => selectedFiles.value.size > 0);
+
+const shareExpired = computed(() => {
+  const iso = share.value?.expires_at;
+  return iso != null && new Date(iso).getTime() <= Date.now();
+});
+
+const lastDownloaded = computed(() => {
+  const iso = stats.value?.last_downloaded_at;
+  return iso ? new Date(iso).toLocaleString() : null;
+});
+
+const expiryLabel = computed(() => {
+  const iso = share.value?.expires_at;
+  return iso ? new Date(iso).toLocaleString() : null;
+});
+
+// Warn owners that, without email verification configured, a restricted share
+// admits anyone who knows an allow-listed address (no proof of ownership).
+const showUnverifiedRestrictedWarning = computed(
+  () => visibility.value === "restricted" && !auth.emailVerificationEnabled,
+);
+
+function toggleFile(id: number): void {
+  const next = new Set(selectedFiles.value);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  selectedFiles.value = next;
+}
+
+function toggleAllFiles(): void {
+  selectedFiles.value = allFilesSelected.value
+    ? new Set()
+    : new Set(displayedFiles.value.map((file) => file.id));
+}
+
+/** ISO string for the datetime-local value, or null when the field is empty. */
+function expiryPayload(): string | null {
+  return expiresAt.value ? new Date(expiresAt.value).toISOString() : null;
+}
+
+/** Convert an ISO timestamp into the local value a datetime-local input wants. */
+function toDatetimeLocal(iso: string | null): string {
+  if (!iso) {
+    return "";
+  }
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `T${pad(date.getHours())}:${pad(date.getMinutes())}`
+  );
+}
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -71,6 +163,7 @@ async function load(): Promise<void> {
       share.value = await sharesApi.get(packageId);
       visibility.value = share.value.visibility;
       emailsText.value = share.value.allowed_emails.join(", ");
+      expiresAt.value = toDatetimeLocal(share.value.expires_at);
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
         share.value = null;
@@ -214,7 +307,32 @@ async function removeAllFiles(): Promise<void> {
   try {
     await packagesApi.removeAllFiles(packageId);
     pkg.value = await packagesApi.get(packageId);
+    selectedFiles.value = new Set();
     toast.success("All files removed");
+  } catch (err) {
+    toast.error(err instanceof ApiError ? err.message : "Failed to remove files");
+  }
+}
+
+async function deleteSelectedFiles(): Promise<void> {
+  const ids = Array.from(selectedFiles.value);
+  if (ids.length === 0) {
+    return;
+  }
+  const confirmed = await confirm({
+    title: "Delete selected files",
+    message: `${ids.length} file(s) will be permanently deleted.`,
+    confirmText: "Delete",
+    destructive: true,
+  });
+  if (!confirmed) {
+    return;
+  }
+  try {
+    await packagesApi.removeAllFiles(packageId, ids);
+    pkg.value = await packagesApi.get(packageId);
+    selectedFiles.value = new Set();
+    toast.success("Files removed");
   } catch (err) {
     toast.error(err instanceof ApiError ? err.message : "Failed to remove files");
   }
@@ -255,12 +373,26 @@ async function downloadAllOwned(): Promise<void> {
   downloadingAll.value = false;
 }
 
+function downloadSelectedOwned(): void {
+  const ids = Array.from(selectedFiles.value);
+  if (ids.length === 0) {
+    return;
+  }
+  const name = pkg.value?.name ?? "package";
+  void triggerDownload(
+    (token) => packagesApi.downloadAllUrl(packageId, token, ids),
+    `${name}.zip`,
+    "Failed to download files",
+  );
+}
+
 async function enableSharing(): Promise<void> {
   try {
     share.value = await sharesApi.enable(
       packageId,
       visibility.value,
       parseEmailList(emailsText.value),
+      expiryPayload(),
     );
     toast.success("Sharing enabled");
   } catch (err) {
@@ -273,6 +405,7 @@ async function updateSharing(): Promise<void> {
     share.value = await sharesApi.update(packageId, {
       visibility: visibility.value,
       allowed_emails: parseEmailList(emailsText.value),
+      expires_at: expiryPayload(),
     });
     toast.success("Changes saved");
   } catch (err) {
@@ -332,10 +465,10 @@ async function deletePackage(): Promise<void> {
 }
 
 async function copyLink(): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(shareLink.value);
+  const copied = await copyText(shareLink.value);
+  if (copied) {
     toast.success("Link copied to clipboard");
-  } catch {
+  } else {
     toast.error("Couldn't copy the link");
   }
 }
@@ -518,37 +651,85 @@ onMounted(load);
               </li>
             </ul>
 
-            <div v-if="pkg.files.length" class="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                :disabled="downloadingAll"
-                @click="downloadAllOwned"
+            <div v-if="pkg.files.length" class="space-y-3">
+              <div class="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  :disabled="downloadingAll"
+                  @click="downloadAllOwned"
+                >
+                  <Download class="h-4 w-4" />
+                  {{ downloadingAll ? "Preparing..." : "Download all" }}
+                </Button>
+                <Button variant="destructive" @click="removeAllFiles">
+                  <Trash2 class="h-4 w-4" /> Delete all
+                </Button>
+                <template v-if="hasFileSelection">
+                  <Button variant="secondary" @click="downloadSelectedOwned">
+                    <Download class="h-4 w-4" /> Download {{ selectedFiles.size }} selected
+                  </Button>
+                  <Button variant="destructive" @click="deleteSelectedFiles">
+                    <Trash2 class="h-4 w-4" /> Delete {{ selectedFiles.size }} selected
+                  </Button>
+                </template>
+              </div>
+
+              <div class="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  v-model="fileFilter"
+                  placeholder="Filter files..."
+                  class="sm:max-w-xs"
+                />
+                <select
+                  v-model="fileSort"
+                  aria-label="Sort files"
+                  class="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="name">Name (A–Z)</option>
+                  <option value="size">Size (largest)</option>
+                  <option value="date">Newest first</option>
+                </select>
+              </div>
+
+              <label
+                v-if="displayedFiles.length"
+                class="flex items-center gap-2 px-1 text-xs text-muted-foreground"
               >
-                <Download class="h-4 w-4" />
-                {{ downloadingAll ? "Preparing..." : "Download all" }}
-              </Button>
-              <Button variant="destructive" @click="removeAllFiles">
-                <Trash2 class="h-4 w-4" /> Delete all
-              </Button>
+                <Checkbox
+                  :model-value="allFilesSelected"
+                  @update:model-value="toggleAllFiles"
+                />
+                Select all
+              </label>
             </div>
 
-            <ul v-if="pkg.files.length" class="divide-y rounded-md border">
+            <ul v-if="displayedFiles.length" class="divide-y rounded-md border">
               <li
-                v-for="file in pkg.files"
+                v-for="file in displayedFiles"
                 :key="file.id"
                 class="flex items-center justify-between gap-3 p-3"
               >
-                <div class="min-w-0">
-                  <p class="truncate text-sm font-medium">{{ file.filename }}</p>
-                  <p class="text-xs text-muted-foreground">
-                    {{ formatBytes(file.size) }}
-                    <span v-if="stats">
-                      &middot; {{ fileDownloads(file.id) }} download{{
-                        fileDownloads(file.id) === 1 ? "" : "s"
-                      }}
+                <label class="flex min-w-0 items-center gap-3">
+                  <Checkbox
+                    :model-value="selectedFiles.has(file.id)"
+                    @update:model-value="() => toggleFile(file.id)"
+                  />
+                  <component
+                    :is="fileIcon(file.filename)"
+                    class="h-4 w-4 shrink-0 text-muted-foreground"
+                  />
+                  <span class="min-w-0">
+                    <span class="block truncate text-sm font-medium">{{ file.filename }}</span>
+                    <span class="block text-xs text-muted-foreground">
+                      {{ formatBytes(file.size) }}
+                      <span v-if="stats">
+                        &middot; {{ fileDownloads(file.id) }} download{{
+                          fileDownloads(file.id) === 1 ? "" : "s"
+                        }}
+                      </span>
                     </span>
-                  </p>
-                </div>
+                  </span>
+                </label>
                 <div class="flex shrink-0 gap-1">
                   <Button
                     variant="ghost"
@@ -569,6 +750,9 @@ onMounted(load);
                 </div>
               </li>
             </ul>
+            <p v-else-if="pkg.files.length" class="text-sm text-muted-foreground">
+              No files match “{{ fileFilter.trim() }}”.
+            </p>
             <p v-else class="text-sm text-muted-foreground">No files yet.</p>
           </CardContent>
         </Card>
@@ -611,6 +795,35 @@ onMounted(load);
               </p>
             </div>
 
+            <Alert v-if="showUnverifiedRestrictedWarning" kind="warning">
+              Email verification is not configured, so anyone who knows an
+              allowed address can open this share. Configure SMTP on the server
+              to require a one-time code sent to the recipient.
+            </Alert>
+
+            <div class="space-y-2">
+              <Label for="expires">Expiry (optional)</Label>
+              <div class="flex flex-wrap items-center gap-2">
+                <Input
+                  id="expires"
+                  v-model="expiresAt"
+                  type="datetime-local"
+                  class="min-w-0 sm:max-w-xs"
+                />
+                <Button
+                  v-if="expiresAt"
+                  variant="ghost"
+                  size="sm"
+                  @click="expiresAt = ''"
+                >
+                  Clear
+                </Button>
+              </div>
+              <p class="text-xs text-muted-foreground">
+                Leave empty for a link that never expires.
+              </p>
+            </div>
+
             <div v-if="!share" class="flex">
               <Button :disabled="!restrictedEmailsOk" @click="enableSharing">Enable sharing</Button>
             </div>
@@ -626,6 +839,17 @@ onMounted(load);
                 </div>
                 <p class="text-xs" :class="share.is_enabled ? 'text-green-600' : 'text-muted-foreground'">
                   {{ share.is_enabled ? "Sharing is active" : "Sharing is paused" }}
+                </p>
+                <p
+                  v-if="expiryLabel"
+                  class="flex items-center gap-1 text-xs"
+                  :class="shareExpired ? 'text-destructive' : 'text-muted-foreground'"
+                >
+                  <Calendar class="h-3 w-3" />
+                  {{ shareExpired ? `Expired ${expiryLabel}` : `Expires ${expiryLabel}` }}
+                </p>
+                <p v-if="lastDownloaded" class="text-xs text-muted-foreground">
+                  Last downloaded {{ lastDownloaded }}
                 </p>
               </div>
               <div class="flex flex-wrap gap-2">

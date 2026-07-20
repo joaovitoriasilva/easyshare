@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { adminApi, auditApi, authApi, packagesApi, publicApi } from "@/api";
+import { adminApi, auditApi, authApi, packagesApi, publicApi, sharesApi } from "@/api";
 import { ApiError, getToken, setToken, setUnauthorizedHandler } from "@/api/client";
 
 afterEach(() => {
@@ -263,6 +263,12 @@ describe("packagesApi stats and bulk file actions", () => {
     );
   });
 
+  it("builds the download-all url with selected file ids", () => {
+    expect(packagesApi.downloadAllUrl(7, "tok.jwt", [1, 2])).toBe(
+      "/api/packages/7/download?token=tok.jwt&file_ids=1&file_ids=2",
+    );
+  });
+
   it("builds a file download url with a token", () => {
     expect(packagesApi.fileDownloadUrl(7, 3, "tok.jwt")).toBe(
       "/api/packages/7/files/3/download?token=tok.jwt",
@@ -290,6 +296,71 @@ describe("packagesApi stats and bulk file actions", () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/packages/7/files");
     expect(init.method).toBe("DELETE");
+  });
+
+  it("sends a DELETE with selected file ids", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ detail: "Deleted 1 file(s)" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await packagesApi.removeAllFiles(7, [3, 5]);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/packages/7/files?file_ids=3&file_ids=5");
+    expect(init.method).toBe("DELETE");
+  });
+});
+
+
+describe("sharesApi + publicApi.verify", () => {
+  const jsonResponse = (data: unknown): Response =>
+    new Response(JSON.stringify(data), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  it("enables a share with an ISO expiry", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+    setToken("t");
+
+    await sharesApi.enable(7, "public", [], "2030-01-01T00:00:00.000Z");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/packages/7/share");
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(init.body as string);
+    expect(body.expires_at).toBe("2030-01-01T00:00:00.000Z");
+    expect(body.visibility).toBe("public");
+  });
+
+  it("sends a null expiry when omitted", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+    setToken("t");
+
+    await sharesApi.enable(7, "public", []);
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.expires_at).toBeNull();
+  });
+
+  it("verifies a one-time code", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ token: "tok", files: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await publicApi.verify("tok", "guest@example.com", "123456");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/s/tok/verify");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      email: "guest@example.com",
+      code: "123456",
+    });
   });
 });
 

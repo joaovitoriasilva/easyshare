@@ -112,6 +112,9 @@ class ServiceSettingsRead(BaseModel):
     rate_limit_enabled: bool
     rate_limit_backend: str
 
+    # Email / restricted-share verification
+    email_verification_enabled: bool
+
     # Logging & observability
     log_level: str
     log_format: str
@@ -132,6 +135,9 @@ class LoginRequest(BaseModel):
 class AuthConfig(BaseModel):
     allow_registration: bool
     max_file_size: int
+    # Whether restricted shares require an emailed one-time code. When False the
+    # frontend warns that allow-listed emails are accepted without verification.
+    email_verification_enabled: bool
 
 
 class StorageUsage(BaseModel):
@@ -194,6 +200,7 @@ class PackageStats(BaseModel):
     views: int
     downloads: int
     file_downloads: dict[int, int] = Field(default_factory=dict)
+    last_downloaded_at: datetime | None = None
 
 
 class PackagePage(BaseModel):
@@ -217,12 +224,17 @@ class DownloadToken(BaseModel):
 class ShareCreate(BaseModel):
     visibility: ShareVisibility = ShareVisibility.PUBLIC
     allowed_emails: list[EmailStr] = Field(default_factory=list)
+    # Optional expiry; NULL/omitted means the share never expires.
+    expires_at: datetime | None = None
 
 
 class ShareUpdate(BaseModel):
     visibility: ShareVisibility | None = None
     is_enabled: bool | None = None
     allowed_emails: list[EmailStr] | None = None
+    # Present in ``model_fields_set`` only when the client sends it, so an
+    # explicit ``null`` can clear the expiry while omission leaves it unchanged.
+    expires_at: datetime | None = None
 
 
 class ShareRead(BaseModel):
@@ -234,6 +246,7 @@ class ShareRead(BaseModel):
     visibility: ShareVisibility
     is_enabled: bool
     created_at: datetime
+    expires_at: datetime | None = None
     allowed_emails: list[EmailStr] = []
 
 
@@ -256,15 +269,26 @@ class PublicShareRead(BaseModel):
     visibility: ShareVisibility
     requires_email: bool
     files: list[PublicFile]
-    # Opaque, short-lived credential returned by ``/access`` for restricted
-    # shares; supplied on download requests in place of the recipient's email.
+    # Opaque, short-lived credential returned by ``/access`` (or ``/verify``)
+    # for restricted shares; supplied on download requests in place of the
+    # recipient's email.
     download_token: str | None = None
+    # True when ``/access`` has emailed a one-time code that must be confirmed
+    # via ``/verify`` before files are revealed (email verification enabled).
+    verification_required: bool = False
 
 
 class ShareAccessRequest(BaseModel):
     """Email supplied by a recipient to unlock a restricted share."""
 
     email: EmailStr
+
+
+class ShareVerifyRequest(BaseModel):
+    """Email plus the one-time code emailed to unlock a restricted share."""
+
+    email: EmailStr
+    code: str = Field(min_length=4, max_length=12)
 
 
 class MessageResponse(BaseModel):

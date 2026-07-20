@@ -127,10 +127,22 @@ class Share(Base):
         Enum(ShareVisibility), default=ShareVisibility.PUBLIC
     )
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Optional expiry: once past, the share behaves as if it were disabled.
+    # NULL means the share never expires.
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Denormalised counter of landing-page views. Incremented atomically on each
+    # public view so view stats do not require an audit row per (often crawled)
+    # hit; see app/api/routes/public.py::view_share.
+    view_count: Mapped[int] = mapped_column(BigInteger, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     package: Mapped[Package] = relationship(back_populates="share")
     allowed_emails: Mapped[list[ShareAllowedEmail]] = relationship(
+        back_populates="share", cascade="all, delete-orphan"
+    )
+    access_codes: Mapped[list[ShareAccessCode]] = relationship(
         back_populates="share", cascade="all, delete-orphan"
     )
 
@@ -148,6 +160,34 @@ class ShareAllowedEmail(Base):
     email: Mapped[str] = mapped_column(String(320), index=True)
 
     share: Mapped[Share] = relationship(back_populates="allowed_emails")
+
+
+class ShareAccessCode(Base):
+    """A one-time code emailed to verify control of a restricted-share email.
+
+    At most one live code exists per (share, email): requesting a new code
+    replaces any previous one. The plaintext code is never stored — only a
+    keyed hash — and a bounded ``attempts`` counter caps brute-force guessing.
+    """
+
+    __tablename__ = "share_access_codes"
+    __table_args__ = (
+        UniqueConstraint("share_id", "email", name="uq_share_code_email"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    share_id: Mapped[int] = mapped_column(
+        ForeignKey("shares.id", ondelete="CASCADE"), index=True
+    )
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    code_hash: Mapped[str] = mapped_column(String(64))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+
+    share: Mapped[Share] = relationship(back_populates="access_codes")
 
 
 class AuditEvent(Base):

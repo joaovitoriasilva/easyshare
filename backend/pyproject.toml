@@ -1,6 +1,6 @@
 [project]
 name = "easyshare-backend"
-version = "0.2.1"
+version = "0.3.0"
 description = "EasyShare backend - secure file/package sharing API"
 authors = [{ name = "João Vitória Silva" }]
 # Upper bound pins the supported interpreter range; the lock resolves within it.

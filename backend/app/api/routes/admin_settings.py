@@ -54,6 +54,7 @@ def get_service_settings(admin: AdminUser) -> ServiceSettingsRead:
         cors_origins=list(settings.cors_origins),
         rate_limit_enabled=settings.rate_limit_enabled,
         rate_limit_backend=_scheme(settings.rate_limit_storage_uri) or "memory",
+        email_verification_enabled=settings.email_verification_enabled,
         log_level=settings.log_level,
         log_format=settings.log_format,
         audit_retention_days=settings.audit_retention_days,

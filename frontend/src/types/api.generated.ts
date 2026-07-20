@@ -384,7 +384,10 @@ export interface paths {
         };
         /**
          * Download All Files
-         * @description Download every file in a package as a single zip archive.
+         * @description Download a package as a zip archive.
+         *
+         *     Owners may pass ``file_ids`` repeatedly to archive a specific subset;
+         *     omitting it includes every file in the package.
          */
         get: operations["download_all_files_api_packages__package_id__download_get"];
         put?: never;
@@ -435,7 +438,10 @@ export interface paths {
         post: operations["upload_file_api_packages__package_id__files_post"];
         /**
          * Delete All Files
-         * @description Delete every file in a package, keeping the package itself.
+         * @description Delete files from a package, keeping the package itself.
+         *
+         *     Owners may pass ``file_ids`` repeatedly to delete a specific subset;
+         *     omitting it deletes every file in the package.
          */
         delete: operations["delete_all_files_api_packages__package_id__files_delete"];
         options?: never;
@@ -526,8 +532,9 @@ export interface paths {
          * Get Package Stats
          * @description Aggregate share view/download counters for an owned package.
          *
-         *     View and download totals come from a single grouped ``COUNT`` over the
-         *     audit log. Per-file download counts are read straight from each file's
+         *     Views are read from the share's denormalised ``view_count``; download totals
+         *     (and the most recent download time) come from a single grouped query over
+         *     the audit log. Per-file download counts are read straight from each file's
          *     denormalised ``download_count`` column (kept current on every share
          *     download), so the endpoint no longer scans and JSON-parses every download
          *     event.
@@ -571,6 +578,10 @@ export interface paths {
         /**
          * View Share
          * @description View share metadata. Files are hidden for restricted shares.
+         *
+         *     Each view bumps a denormalised counter on the share rather than writing an
+         *     audit row, so a heavily crawled or refreshed public link cannot amplify into
+         *     unbounded audit-table writes. The endpoint is also rate-limited.
          */
         get: operations["view_share_api_s__token__get"];
         put?: never;
@@ -594,8 +605,13 @@ export interface paths {
          * Access Share
          * @description Unlock a restricted share by providing an allowed email address.
          *
-         *     Returns a short-lived ``download_token`` that the recipient supplies on
-         *     subsequent download requests, so their email never travels in a URL.
+         *     When email verification is enabled, this only *starts* the flow: a one-time
+         *     code is emailed and the response asks the recipient to confirm it via
+         *     ``/verify`` (files stay hidden). To avoid revealing whether an address is
+         *     allow-listed, the response is identical whether or not the email is allowed;
+         *     a code is only actually sent to an allow-listed address. When email is not
+         *     configured the historical behaviour applies: knowing an allowed email grants
+         *     access immediately.
          */
         post: operations["access_share_api_s__token__access_post"];
         delete?: never;
@@ -643,6 +659,31 @@ export interface paths {
         get: operations["download_shared_file_api_s__token__files__file_id__download_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/s/{token}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify Share
+         * @description Confirm the emailed one-time code and unlock a restricted share.
+         *
+         *     The email must still be on the allow-list (so removing an address revokes a
+         *     pending code) and the code must be correct, unexpired and within the attempt
+         *     budget. Success returns the same short-lived download token as the
+         *     no-verification path.
+         */
+        post: operations["verify_share_api_s__token__verify_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -727,6 +768,8 @@ export interface components {
         AuthConfig: {
             /** Allow Registration */
             allow_registration: boolean;
+            /** Email Verification Enabled */
+            email_verification_enabled: boolean;
             /** Max File Size */
             max_file_size: number;
         };
@@ -865,6 +908,8 @@ export interface components {
             file_downloads?: {
                 [key: string]: number;
             };
+            /** Last Downloaded At */
+            last_downloaded_at?: string | null;
             /** Views */
             views: number;
         };
@@ -918,6 +963,11 @@ export interface components {
             requires_email: boolean;
             /** Token */
             token: string;
+            /**
+             * Verification Required
+             * @default false
+             */
+            verification_required: boolean;
             visibility: components["schemas"]["ShareVisibility"];
         };
         /**
@@ -954,6 +1004,8 @@ export interface components {
             db_pool_timeout: number;
             /** Deployment Profile */
             deployment_profile: string;
+            /** Email Verification Enabled */
+            email_verification_enabled: boolean;
             /** Environment */
             environment: string;
             /** Log Format */
@@ -998,6 +1050,8 @@ export interface components {
         ShareCreate: {
             /** Allowed Emails */
             allowed_emails?: string[];
+            /** Expires At */
+            expires_at?: string | null;
             /** @default public */
             visibility: components["schemas"]["ShareVisibility"];
         };
@@ -1013,6 +1067,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Expires At */
+            expires_at?: string | null;
             /** Id */
             id: number;
             /** Is Enabled */
@@ -1027,9 +1083,24 @@ export interface components {
         ShareUpdate: {
             /** Allowed Emails */
             allowed_emails?: string[] | null;
+            /** Expires At */
+            expires_at?: string | null;
             /** Is Enabled */
             is_enabled?: boolean | null;
             visibility?: components["schemas"]["ShareVisibility"] | null;
+        };
+        /**
+         * ShareVerifyRequest
+         * @description Email plus the one-time code emailed to unlock a restricted share.
+         */
+        ShareVerifyRequest: {
+            /** Code */
+            code: string;
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
         };
         /**
          * ShareVisibility
@@ -1740,6 +1811,7 @@ export interface operations {
     download_all_files_api_packages__package_id__download_get: {
         parameters: {
             query?: {
+                file_ids?: number[] | null;
                 token?: string | null;
             };
             header?: never;
@@ -1838,7 +1910,9 @@ export interface operations {
     };
     delete_all_files_api_packages__package_id__files_delete: {
         parameters: {
-            query?: never;
+            query?: {
+                file_ids?: number[] | null;
+            };
             header?: never;
             path: {
                 package_id: number;
@@ -2239,6 +2313,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_share_api_s__token__verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareVerifyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicShareRead"];
                 };
             };
             /** @description Validation Error */

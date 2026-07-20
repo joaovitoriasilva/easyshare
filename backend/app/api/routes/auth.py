@@ -39,6 +39,7 @@ def auth_config() -> AuthConfig:
     return AuthConfig(
         allow_registration=settings.allow_registration,
         max_file_size=settings.max_file_size,
+        email_verification_enabled=settings.email_verification_enabled,
     )
 
 

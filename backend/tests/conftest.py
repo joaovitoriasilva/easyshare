@@ -12,6 +12,7 @@ from app.core.rate_limit import limiter
 from app.db.session import Base
 from app.main import app
 from app.services import storage as storage_module
+from app.services.quota import reset_total_usage_cache
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -36,6 +37,9 @@ def db_sessionmaker(tmp_path: Path) -> Generator[sessionmaker]:
     )
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     Base.metadata.create_all(bind=engine)
+    # The instance-total cache is process-global; clear it so a value scanned on
+    # a previous test's engine can't leak into this one.
+    reset_total_usage_cache()
 
     def override_get_db() -> Generator:
         db = TestingSessionLocal()

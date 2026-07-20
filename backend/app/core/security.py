@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -174,3 +176,30 @@ def decode_download_token(token: str) -> tuple[int, int] | None:
 def generate_share_token() -> str:
     """Generate a cryptographically secure, URL-safe share identifier."""
     return secrets.token_urlsafe(24)
+
+
+def generate_verification_code() -> str:
+    """Return a random 6-digit numeric one-time code (zero-padded)."""
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def hash_verification_code(share_id: int, email: str, code: str) -> str:
+    """Return a keyed hash binding a one-time ``code`` to a share and email.
+
+    HMAC-SHA256 keyed with the app secret so the stored value is useless without
+    the server key (a database leak alone cannot recover codes), and binding the
+    share id and email so a hash can never be replayed against a different share
+    or recipient. The plaintext code is never stored.
+    """
+    message = f"{share_id}:{email.strip().lower()}:{code}".encode()
+    return hmac.new(
+        settings.secret_key.encode(), message, hashlib.sha256
+    ).hexdigest()
+
+
+def verify_verification_code(
+    share_id: int, email: str, code: str, expected_hash: str
+) -> bool:
+    """Constant-time check of a submitted code against its stored hash."""
+    candidate = hash_verification_code(share_id, email, code)
+    return hmac.compare_digest(candidate, expected_hash)

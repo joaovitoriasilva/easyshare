@@ -170,6 +170,15 @@ running with Docker.
 | `EASYSHARE_LOG_FORMAT`                   | `console`                            | Log output format: `console` (human-readable) or `json` (structured, for shippers). |
 | `EASYSHARE_AUDIT_RETENTION_DAYS`         | `0`                                  | When greater than `0`, a background task periodically deletes audit-log events older than this many days. `0` (the default) keeps them indefinitely. |
 | `EASYSHARE_AUDIT_PRUNE_INTERVAL_HOURS`   | `24`                                 | How often, in hours, the audit-log retention task runs (only when `EASYSHARE_AUDIT_RETENTION_DAYS` is greater than `0`). |
+| `EASYSHARE_SMTP_HOST`                    | _(empty)_                            | SMTP server host for outgoing mail. When set, unlocking a **restricted** share requires a one-time code emailed to the recipient (proving they control the address, not merely know it). Left empty (the default), email verification is disabled and restricted shares accept any allow-listed address; the UI warns owners when they enable a restricted share in this mode. |
+| `EASYSHARE_SMTP_PORT`                    | `587`                                | SMTP server port.                                                           |
+| `EASYSHARE_SMTP_USERNAME`               | _(empty)_                            | SMTP username (login). Leave empty for an unauthenticated relay.            |
+| `EASYSHARE_SMTP_PASSWORD`               | _(empty)_                            | SMTP password. Provide via a secret, never commit it.                       |
+| `EASYSHARE_SMTP_FROM`                   | _(empty)_                            | From/envelope address for verification emails. Falls back to `EASYSHARE_SMTP_USERNAME` when unset. |
+| `EASYSHARE_SMTP_USE_TLS`                | `true`                               | Use STARTTLS when connecting to the SMTP server.                            |
+| `EASYSHARE_SMTP_TIMEOUT`                | `10`                                 | SMTP socket timeout in seconds (bounds how long a send can hold a worker).  |
+| `EASYSHARE_SHARE_VERIFICATION_CODE_TTL_MINUTES` | `10`                          | How long an emailed share-verification code stays valid.                    |
+| `EASYSHARE_SHARE_VERIFICATION_MAX_ATTEMPTS`     | `5`                           | Wrong-guess budget before a verification code is invalidated (brute-force bound). |
 
 When running locally, edit `backend/.env` directly (it is loaded automatically
 by the backend on startup) or export the variables in your shell before

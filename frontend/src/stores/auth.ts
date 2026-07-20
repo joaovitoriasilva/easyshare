@@ -9,6 +9,7 @@ export const useAuthStore = defineStore("auth", () => {
   const initialized = ref(false);
   const allowRegistration = ref(true);
   const maxFileSize = ref(100 * 1024 * 1024);
+  const emailVerificationEnabled = ref(false);
 
   async function init(): Promise<void> {
     if (initialized.value) {
@@ -26,6 +27,7 @@ export const useAuthStore = defineStore("auth", () => {
       const config = await authApi.config();
       allowRegistration.value = config.allow_registration;
       maxFileSize.value = config.max_file_size;
+      emailVerificationEnabled.value = config.email_verification_enabled;
     } catch {
       allowRegistration.value = true;
     }
@@ -50,5 +52,5 @@ export const useAuthStore = defineStore("auth", () => {
     user.value = null;
   }
 
-  return { user, initialized, allowRegistration, maxFileSize, init, login, register, logout };
+  return { user, initialized, allowRegistration, maxFileSize, emailVerificationEnabled, init, login, register, logout };
 });
