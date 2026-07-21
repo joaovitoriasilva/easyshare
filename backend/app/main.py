@@ -43,6 +43,7 @@ from app.core.static import router as frontend_router
 from app.core.tasks import (
     audit_retention_loop,
     hot_buffer_flush_loop,
+    orphan_blob_prune_loop,
     upload_session_prune_loop,
 )
 from app.services.counters import counter_buffer
@@ -68,6 +69,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     if settings.counter_flush_interval_seconds > 0:
         tasks.append(asyncio.create_task(hot_buffer_flush_loop()))
     tasks.append(asyncio.create_task(upload_session_prune_loop()))
+    if settings.storage_orphan_retention_hours > 0:
+        tasks.append(asyncio.create_task(orphan_blob_prune_loop()))
     try:
         yield
     finally:

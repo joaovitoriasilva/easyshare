@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.engine import CursorResult
 
@@ -22,8 +22,8 @@ from app.schemas.schemas import (
     UserAdminUpdate,
     UserPage,
 )
+from app.services.files import delete_stored_files
 from app.services.quota import user_storage_used
-from app.services.storage import storage
 
 router = APIRouter(prefix="/admin/users", tags=["admin"])
 
@@ -166,11 +166,16 @@ def delete_user(
     db: DbSession,
     admin: AdminUser,
     request: Request,
+    background_tasks: BackgroundTasks,
 ) -> MessageResponse:
     """Delete a user and all of their packages, files and shares.
 
     Administrators cannot delete their own account, so an instance always
-    keeps at least one administrator.
+    keeps at least one administrator. The database rows are removed
+    synchronously; the user's stored blobs — potentially many, each a network
+    round-trip on object storage — are reclaimed in a background task (with the
+    orphaned-blob sweep as backstop) so the request never blocks on a long chain
+    of storage deletes.
     """
     user = db.get(User, user_id)
     if user is None:
@@ -184,12 +189,17 @@ def delete_user(
             detail="You cannot delete your own account",
         )
 
-    for package in user.packages:
-        for file in package.files:
-            storage.delete(file.storage_key)
+    storage_keys = list(
+        db.scalars(
+            select(PackageFile.storage_key)
+            .join(Package, PackageFile.package_id == Package.id)
+            .where(Package.owner_id == user.id)
+        )
+    )
 
     db.delete(user)
     db.commit()
+    background_tasks.add_task(delete_stored_files, storage_keys)
 
     record_event(
         "admin.user.delete",

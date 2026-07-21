@@ -32,6 +32,26 @@ _SECURITY_HEADERS: list[tuple[bytes, bytes]] = [
 ]
 
 
+def _build_hsts_header() -> tuple[bytes, bytes] | None:
+    """Build the ``Strict-Transport-Security`` header value, or ``None`` if off.
+
+    Assembled once at import from settings; the middleware only emits it on
+    responses whose effective scheme is HTTPS, so the directive never pins a
+    plain-HTTP dev origin to TLS.
+    """
+    if not settings.hsts_enabled:
+        return None
+    value = f"max-age={settings.hsts_max_age}"
+    if settings.hsts_include_subdomains:
+        value += "; includeSubDomains"
+    if settings.hsts_preload:
+        value += "; preload"
+    return (b"strict-transport-security", value.encode("latin-1"))
+
+
+_HSTS_HEADER = _build_hsts_header()
+
+
 class MaxBodySizeMiddleware:
     """Reject an over-sized request body before it is read or spooled to disk.
 
@@ -113,11 +133,18 @@ class SecurityHeadersMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # HSTS is only meaningful over TLS, and pinning a plain-HTTP origin would
+        # break local development, so add it only when the (proxy-aware) scheme
+        # is https. The static headers apply to every response.
+        headers = _SECURITY_HEADERS
+        if _HSTS_HEADER is not None and scope.get("scheme") == "https":
+            headers = [*_SECURITY_HEADERS, _HSTS_HEADER]
+
         async def send_wrapper(message: Message) -> None:
             if message["type"] == "http.response.start":
                 message["headers"] = [
                     *message.get("headers", []),
-                    *_SECURITY_HEADERS,
+                    *headers,
                 ]
             await send(message)
 

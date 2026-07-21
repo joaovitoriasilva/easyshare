@@ -128,6 +128,19 @@ class Settings(BaseSettings):
     # way, so this only affects the on-disk layout.
     obfuscate_storage_names: bool = True
 
+    # Orphaned-blob reconciliation. A crash between writing an uploaded file's
+    # bytes and committing its database row — or a best-effort delete that never
+    # finished — can leave an object on the storage backend that no
+    # ``package_files`` row references. A background sweep periodically removes
+    # stored objects that are unreferenced *and* older than
+    # ``storage_orphan_retention_hours``; the age guard means an object still
+    # being written by an in-flight upload (whose row is committed moments
+    # later) is never mistaken for an orphan, so the sweep is race-free. Set the
+    # retention to 0 to disable the sweep entirely;
+    # ``storage_orphan_prune_interval_hours`` controls how often it runs.
+    storage_orphan_retention_hours: int = Field(default=24, ge=0)
+    storage_orphan_prune_interval_hours: int = Field(default=6, ge=1)
+
     # Frontend (single-image deployment: the built Vue SPA is baked into the
     # backend image at this path and served by FastAPI itself; see
     # app/core/static.py). Missing in local dev, where the SPA is instead
@@ -136,6 +149,21 @@ class Settings(BaseSettings):
 
     # CORS
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
+
+    # HTTP Strict Transport Security. When enabled (default) an
+    # ``Strict-Transport-Security`` header is added to responses served over
+    # HTTPS, telling browsers to only ever reach this origin over TLS (defeating
+    # SSL-strip downgrade attacks). The header is emitted only when the effective
+    # request scheme is ``https`` — determined from the proxy-forwarded scheme
+    # uvicorn trusts via ``--proxy-headers`` — so plain-HTTP local development is
+    # never pinned to TLS. ``hsts_max_age`` is the pin lifetime in seconds
+    # (default ~2 years); ``include_subdomains``/``preload`` extend it to
+    # subdomains and opt into browser preload lists (enable ``preload`` only once
+    # every subdomain is HTTPS-ready).
+    hsts_enabled: bool = True
+    hsts_max_age: int = Field(default=63072000, ge=0)  # 2 years
+    hsts_include_subdomains: bool = True
+    hsts_preload: bool = False
 
     # Rate limiting
     rate_limit_enabled: bool = True
@@ -228,13 +256,15 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _guard_distributed_shared_state(self) -> Settings:
-        """A distributed deployment must not rely on process-local state.
+        """A distributed deployment must not rely on process-local or node-local state.
 
-        With more than one worker/replica both the rate-limit store and the
-        database must be shared across processes: an in-memory rate-limit store
-        is per-process (limits would be multiplied by the process count), and
-        SQLite is single-writer and file-local (it cannot be shared between
-        replicas). Fail fast on either rather than degrading silently.
+        With more than one worker/replica the rate-limit store, the database and
+        the file storage must all be shared across processes: an in-memory
+        rate-limit store is per-process (limits would be multiplied by the
+        process count), SQLite is single-writer and file-local (it cannot be
+        shared between replicas), and local-disk storage is node-local (a file
+        uploaded to one replica's disk cannot be read back from another). Fail
+        fast on any of them rather than degrading silently.
         """
         if self.deployment_profile != "distributed":
             return self
@@ -250,6 +280,13 @@ class Settings(BaseSettings):
                 "a shared database is required: set EASYSHARE_DATABASE_URL to a "
                 "server database such as postgresql+psycopg://... (SQLite "
                 "cannot be shared across replicas)"
+            )
+        storage_uri = self.storage_uri.strip().lower()
+        if not storage_uri or storage_uri.startswith("local://"):
+            problems.append(
+                "a shared storage backend is required: set "
+                "EASYSHARE_STORAGE_URI to an s3://... URI (local-disk storage is "
+                "node-local and cannot be shared across replicas)"
             )
         if problems:
             raise ValueError(

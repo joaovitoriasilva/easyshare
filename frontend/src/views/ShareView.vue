@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { Download, Lock, MailCheck, Package2, X } from "@lucide/vue";
+import { Copy, Download, Lock, MailCheck, Package2, QrCode as QrCodeIcon, RotateCw, Share2, X } from "@lucide/vue";
 import { publicApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { PublicShare } from "@/api/types";
 import { formatBytes, formatDuration, formatRate } from "@/lib/format";
 import { downloadUrl } from "@/lib/download";
+import { copyText, shareOrCopy } from "@/lib/clipboard";
 import { fileIcon } from "@/lib/fileIcon";
 import { isValidEmail } from "@/lib/validation";
 import { useToasts } from "@/composables/useToasts";
@@ -23,6 +24,7 @@ import {
   Checkbox,
   Input,
   Label,
+  QrCode,
   Skeleton,
   Tooltip,
 } from "@/components/ui";
@@ -109,6 +111,43 @@ async function load(): Promise<void> {
     setDocumentTitle("Share unavailable");
   } finally {
     loading.value = false;
+  }
+}
+
+// Re-share affordances: let a recipient copy this share link, use the OS share
+// sheet, or reveal a QR code to open it on another device.
+const shareUrl = computed(() => `${window.location.origin}/s/${token}`);
+const showQr = ref(false);
+const qr = ref<InstanceType<typeof QrCode> | null>(null);
+
+async function copyLink(): Promise<void> {
+  const copied = await copyText(shareUrl.value);
+  if (copied) {
+    toast.success("Link copied to clipboard");
+  } else {
+    toast.error("Couldn't copy the link");
+  }
+}
+
+async function nativeShare(): Promise<void> {
+  const result = await shareOrCopy({
+    url: shareUrl.value,
+    title: share.value?.package_name,
+    text: share.value ? `Files shared with you: ${share.value.package_name}` : undefined,
+  });
+  if (result === "copied") {
+    toast.success("Link copied to clipboard");
+  } else if (result === "failed") {
+    toast.error("Couldn't share the link");
+  }
+}
+
+async function downloadQr(): Promise<void> {
+  const base = share.value?.package_name?.trim() || "share";
+  try {
+    await qr.value?.download(`${base}-qr.png`);
+  } catch {
+    toast.error("Couldn't export the QR code");
   }
 }
 
@@ -217,6 +256,11 @@ onMounted(load);
         <CardTitle>Share unavailable</CardTitle>
         <CardDescription>{{ error }}</CardDescription>
       </CardHeader>
+      <CardContent>
+        <Button variant="outline" size="sm" class="gap-1.5" @click="load">
+          <RotateCw class="h-4 w-4" /> Try again
+        </Button>
+      </CardContent>
     </Card>
 
     <template v-else-if="share">
@@ -289,6 +333,41 @@ onMounted(load);
           </div>
 
           <div v-else class="space-y-4">
+            <!-- Re-share this link: copy it, use the OS share sheet, or show a
+                 QR code to open it on another device. -->
+            <div class="flex flex-wrap items-center gap-2">
+              <Button variant="secondary" size="sm" class="gap-1.5" @click="nativeShare">
+                <Share2 class="h-4 w-4" /> Share
+              </Button>
+              <Button variant="outline" size="sm" class="gap-1.5" @click="copyLink">
+                <Copy class="h-4 w-4" /> Copy link
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                class="gap-1.5"
+                :aria-expanded="showQr"
+                aria-controls="share-qr"
+                @click="showQr = !showQr"
+              >
+                <QrCodeIcon class="h-4 w-4" />
+                {{ showQr ? "Hide QR code" : "Show QR code" }}
+              </Button>
+            </div>
+            <div
+              v-if="showQr"
+              id="share-qr"
+              class="flex flex-col items-center gap-3 rounded-md border p-4 text-center"
+            >
+              <QrCode ref="qr" :value="shareUrl" label="QR code for this share link" />
+              <p class="text-xs text-muted-foreground">
+                Scan to open this share on another device.
+              </p>
+              <Button variant="secondary" size="sm" class="gap-1.5" @click="downloadQr">
+                <Download class="h-4 w-4" /> Download PNG
+              </Button>
+            </div>
+
             <div class="space-y-3">
               <div class="flex items-center justify-between gap-3">
                 <label class="flex items-center gap-2 text-sm">

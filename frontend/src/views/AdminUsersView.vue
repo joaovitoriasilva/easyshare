@@ -8,7 +8,7 @@ import { useToasts } from "@/composables/useToasts";
 import { useConfirm } from "@/composables/useConfirm";
 import { isValidEmail } from "@/lib/validation";
 import { formatBytes } from "@/lib/format";
-import { Button, Input, PasswordInput, Skeleton, Tooltip } from "@/components/ui";
+import { Button, Input, Pagination, PasswordInput, Skeleton, Tooltip } from "@/components/ui";
 
 const auth = useAuthStore();
 const toast = useToasts();
@@ -198,18 +198,9 @@ async function applyBulkQuota(): Promise<void> {
   }
 }
 
-function next(): void {
-  if (offset.value + limit < total.value) {
-    offset.value += limit;
-    load();
-  }
-}
-
-function prev(): void {
-  if (offset.value > 0) {
-    offset.value = Math.max(0, offset.value - limit);
-    load();
-  }
+function goToOffset(nextOffset: number): void {
+  offset.value = nextOffset;
+  void load();
 }
 
 onMounted(load);
@@ -421,22 +412,14 @@ onMounted(load);
         </table>
       </div>
 
-      <div class="flex items-center justify-between text-sm text-muted-foreground">
-        <span>{{ total }} user(s)</span>
-        <div class="flex gap-2">
-          <Button variant="outline" size="sm" :disabled="offset === 0" @click="prev">
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            :disabled="offset + limit >= total"
-            @click="next"
-          >
-            Next
-          </Button>
-        </div>
-      </div>
+      <Pagination
+        v-if="total > limit"
+        :total="total"
+        :limit="limit"
+        :offset="offset"
+        :label="`${total} user${total === 1 ? '' : 's'}`"
+        @update:offset="goToOffset"
+      />
     </template>
   </div>
 </template>

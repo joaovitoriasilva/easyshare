@@ -1,6 +1,13 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { adminApi, auditApi, authApi, packagesApi, publicApi, sharesApi } from "@/api";
-import { ApiError, getToken, setToken, setUnauthorizedHandler } from "@/api/client";
+import {
+  ApiError,
+  getToken,
+  parseRetryAfter,
+  setRateLimitedHandler,
+  setToken,
+  setUnauthorizedHandler,
+} from "@/api/client";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -498,5 +505,49 @@ describe("unauthorized handling", () => {
     expect(handler).not.toHaveBeenCalled();
 
     setUnauthorizedHandler(null);
+  });
+});
+
+describe("parseRetryAfter", () => {
+  it("parses the delta-seconds form", () => {
+    expect(parseRetryAfter("30")).toBe(30);
+    expect(parseRetryAfter("0")).toBe(0);
+  });
+
+  it("parses an HTTP-date into remaining seconds", () => {
+    const future = new Date(Date.now() + 60_000).toUTCString();
+    const seconds = parseRetryAfter(future);
+    expect(seconds).not.toBeNull();
+    expect(seconds).toBeGreaterThan(0);
+    expect(seconds).toBeLessThanOrEqual(60);
+  });
+
+  it("returns null for a missing or unparseable value", () => {
+    expect(parseRetryAfter(null)).toBeNull();
+    expect(parseRetryAfter("soon")).toBeNull();
+  });
+});
+
+describe("rate-limit handling", () => {
+  afterEach(() => {
+    setRateLimitedHandler(null);
+  });
+
+  const tooManyRequests = (): Response =>
+    new Response(JSON.stringify({ detail: "Too many requests" }), {
+      status: 429,
+      headers: { "content-type": "application/json", "Retry-After": "42" },
+    });
+
+  it("sets retryAfter on the error and invokes the handler on 429", async () => {
+    const seen: (number | null)[] = [];
+    setRateLimitedHandler((seconds) => seen.push(seconds));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(tooManyRequests()));
+
+    await expect(packagesApi.list({ limit: 10, offset: 0 })).rejects.toMatchObject({
+      status: 429,
+      retryAfter: 42,
+    });
+    expect(seen).toEqual([42]);
   });
 });

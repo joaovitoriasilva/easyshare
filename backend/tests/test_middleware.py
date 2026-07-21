@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 
-from app.core.middleware import MaxBodySizeMiddleware
+from app.core.middleware import MaxBodySizeMiddleware, SecurityHeadersMiddleware
 from fastapi import FastAPI, File, UploadFile
 from fastapi.testclient import TestClient
 
@@ -58,4 +58,40 @@ def test_json_body_held_to_smaller_cap_than_multipart() -> None:
     )
     assert resp.status_code == 200
     assert resp.json() == {"filename": "a.txt"}
+
+
+def _secured_app() -> FastAPI:
+    """A minimal app wrapped only by the security-headers middleware."""
+    app = FastAPI()
+
+    @app.get("/ping")
+    def ping() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(SecurityHeadersMiddleware)
+    return app
+
+
+def test_static_security_headers_always_present() -> None:
+    """The CSP/nosniff/frame headers are stamped on every response."""
+    resp = TestClient(_secured_app()).get("/ping")
+    assert resp.headers["x-content-type-options"] == "nosniff"
+    assert resp.headers["x-frame-options"] == "DENY"
+    assert "content-security-policy" in resp.headers
+
+
+def test_hsts_present_over_https() -> None:
+    """HSTS is stamped when the (proxy-aware) request scheme is https."""
+    client = TestClient(_secured_app(), base_url="https://testserver")
+    resp = client.get("/ping")
+    hsts = resp.headers.get("strict-transport-security")
+    assert hsts is not None
+    assert "max-age=" in hsts
+    assert "includeSubDomains" in hsts
+
+
+def test_hsts_absent_over_http() -> None:
+    """HSTS is never sent over plain HTTP so local dev isn't pinned to TLS."""
+    resp = TestClient(_secured_app()).get("/ping")
+    assert "strict-transport-security" not in resp.headers
 

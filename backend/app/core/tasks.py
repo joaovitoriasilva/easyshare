@@ -9,6 +9,7 @@ from app.core.audit import audit_buffer, prune_audit_events
 from app.core.config import settings
 from app.services.chunked import prune_upload_sessions
 from app.services.counters import counter_buffer
+from app.services.files import prune_orphaned_blobs
 
 logger = logging.getLogger("easyshare.tasks")
 
@@ -83,3 +84,27 @@ async def upload_session_prune_loop() -> None:
                 logger.info("uploads.pruned", extra={"removed": removed})
         except Exception:
             logger.exception("uploads.prune_failed")
+
+
+async def orphan_blob_prune_loop() -> None:
+    """Periodically remove stored objects that no database row references.
+
+    Reclaims blobs left behind by a crash between writing an upload's bytes and
+    committing its row, or by a best-effort delete that never finished (see
+    :func:`app.services.files.prune_orphaned_blobs`). Sleeps first (so nothing
+    runs at startup or in short-lived test clients), then repeats every
+    ``storage_orphan_prune_interval_hours``. The blocking listing/delete runs in
+    a worker thread so the event loop is never blocked; the loop is cancelled by
+    the application lifespan on shutdown.
+    """
+    interval = settings.storage_orphan_prune_interval_hours * 3600
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            removed = await asyncio.to_thread(
+                prune_orphaned_blobs, settings.storage_orphan_retention_hours
+            )
+            if removed:
+                logger.info("storage.orphans_pruned", extra={"removed": removed})
+        except Exception:
+            logger.exception("storage.orphan_prune_failed")

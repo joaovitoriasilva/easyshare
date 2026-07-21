@@ -1,7 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch, type ComponentPublicInstance } from "vue";
 import { RouterLink, useRouter } from "vue-router";
-import { FileArchive, FolderUp, Plus, Search, Share2, Upload } from "@lucide/vue";
+import {
+  FileArchive,
+  FolderUp,
+  Loader2,
+  Plus,
+  RotateCw,
+  Search,
+  Share2,
+  Upload,
+} from "@lucide/vue";
 import { authApi, packagesApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { PackageListItem, StorageUsage } from "@/api/types";
@@ -19,6 +28,7 @@ import {
   CardTitle,
   Input,
   Label,
+  Pagination,
   Skeleton,
 } from "@/components/ui";
 
@@ -32,6 +42,11 @@ const total = ref(0);
 const offset = ref(0);
 const pageSize = 12;
 const loading = ref(true);
+// A later fetch (search / pagination) keeps the current list on screen under a
+// subtle spinner instead of replacing it with skeletons, so the page never
+// flashes empty on every keystroke or page change.
+const refetching = ref(false);
+const loaded = ref(false);
 const error = ref<string | null>(null);
 
 const search = ref("");
@@ -53,12 +68,14 @@ const usagePercent = computed(() => {
   );
 });
 
-// 1-based current page and total page count, for the pagination read-out.
-const currentPage = computed(() => Math.floor(offset.value / pageSize) + 1);
-const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
-
 async function load(): Promise<void> {
-  loading.value = true;
+  // Show full skeletons only on the very first load; subsequent loads keep the
+  // current list visible under a refetch spinner (see `refetching`).
+  if (loaded.value) {
+    refetching.value = true;
+  } else {
+    loading.value = true;
+  }
   error.value = null;
   try {
     const page = await packagesApi.list({
@@ -68,10 +85,12 @@ async function load(): Promise<void> {
     });
     packages.value = page.items;
     total.value = page.total;
+    loaded.value = true;
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to load packages";
   } finally {
     loading.value = false;
+    refetching.value = false;
   }
 }
 
@@ -96,18 +115,9 @@ watch(search, () => {
   }, 300);
 });
 
-function next(): void {
-  if (offset.value + pageSize < total.value) {
-    offset.value += pageSize;
-    load();
-  }
-}
-
-function prev(): void {
-  if (offset.value > 0) {
-    offset.value = Math.max(0, offset.value - pageSize);
-    load();
-  }
+function goToOffset(nextOffset: number): void {
+  offset.value = nextOffset;
+  void load();
 }
 
 async function create(): Promise<void> {
@@ -298,7 +308,12 @@ onMounted(() => {
       <Search
         class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
       />
-      <Input v-model="search" placeholder="Search packages..." class="pl-9" />
+      <Input v-model="search" placeholder="Search packages..." class="pl-9 pr-9" />
+      <Loader2
+        v-if="refetching"
+        class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground"
+        aria-hidden="true"
+      />
     </div>
 
     <Card v-if="showForm">
@@ -323,7 +338,13 @@ onMounted(() => {
       </form>
     </Card>
 
-    <Alert v-if="error" kind="error">{{ error }}</Alert>
+    <div v-if="error" class="space-y-3">
+      <Alert kind="error">{{ error }}</Alert>
+      <Button variant="outline" size="sm" :disabled="refetching" @click="load">
+        <RotateCw class="h-4 w-4" :class="refetching ? 'animate-spin' : ''" />
+        Try again
+      </Button>
+    </div>
 
     <div v-if="loading" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <Card v-for="n in 6" :key="n" class="h-full">
@@ -341,7 +362,10 @@ onMounted(() => {
     </div>
 
     <template v-else>
-      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div
+        class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+        :class="refetching ? 'pointer-events-none opacity-60 transition-opacity' : ''"
+      >
         <RouterLink
           v-for="pkg in packages"
           :key="pkg.id"
@@ -365,28 +389,15 @@ onMounted(() => {
         </RouterLink>
       </div>
 
-      <div
+      <Pagination
         v-if="total > pageSize"
-        class="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between"
-      >
-        <span>{{ total }} package{{ total === 1 ? "" : "s" }}</span>
-        <div class="flex items-center gap-3">
-          <span class="tabular-nums">Page {{ currentPage }} of {{ totalPages }}</span>
-          <div class="flex gap-2">
-            <Button variant="outline" size="sm" :disabled="offset === 0" @click="prev">
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              :disabled="offset + pageSize >= total"
-              @click="next"
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      </div>
+        :total="total"
+        :limit="pageSize"
+        :offset="offset"
+        :disabled="refetching"
+        :label="`${total} package${total === 1 ? '' : 's'}`"
+        @update:offset="goToOffset"
+      />
     </template>
   </div>
 </template>

@@ -14,6 +14,7 @@ same "always download, never render inline" behaviour as the local backend.
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from typing import Any, BinaryIO, cast
 from urllib.parse import parse_qs, urlparse
 
@@ -130,6 +131,22 @@ class S3StorageBackend(StorageBackend):
                 return False
             raise
         return True
+
+    def iter_objects(self) -> Iterator[tuple[str, float]]:
+        """Yield ``(storage_key, modified_epoch)`` for every object under the prefix.
+
+        Pages through ``list_objects_v2`` and strips the configured key prefix so
+        the yielded key matches what is stored in ``package_files.storage_key``.
+        ``modified_epoch`` comes from each object's ``LastModified`` timestamp.
+        """
+        prefix = f"{self._prefix}/" if self._prefix else ""
+        paginator = self._client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                storage_key = key[len(prefix):] if prefix else key
+                if storage_key:
+                    yield storage_key, obj["LastModified"].timestamp()
 
     def check_writable(self) -> None:
         try:

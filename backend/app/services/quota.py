@@ -129,12 +129,16 @@ def enforce_quota_after_write(db: Session, package: Package) -> None:
     per_user_quota = package.owner.storage_quota
     if per_user_quota > 0 and user_storage_used(db, package.owner_id) > per_user_quota:
         raise QuotaExceededError("Upload would exceed your storage quota")
-    # The instance-wide cap is only a coarse safety net (its usual read is cached
-    # and tolerates a small overshoot), so it is re-checked exactly but not
-    # globally serialised — two different users could still race it by a bounded
-    # amount, which is acceptable for the opt-in instance limit.
+    # The instance-wide cap is only a coarse safety net, so its re-check reads
+    # the short-lived cached total (``use_cache=True``) rather than re-summing
+    # the whole ``package_files`` table on every finalize — that full scan would
+    # otherwise sit on the upload hot path and grow with the table. Reusing the
+    # cache keeps the check O(1); two uploads racing the same stale window can
+    # overshoot the instance cap by a bounded amount, which is the same tolerance
+    # the up-front ``remaining_upload_cap`` check already accepts. Per-user
+    # accounting above stays exact and serialised.
     if (
         settings.storage_quota_total > 0
-        and total_storage_used(db) > settings.storage_quota_total
+        and total_storage_used(db, use_cache=True) > settings.storage_quota_total
     ):
         raise QuotaExceededError("Upload would exceed the server storage limit")

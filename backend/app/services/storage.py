@@ -15,6 +15,7 @@ import os
 import secrets
 import shutil
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from pathlib import Path
 from typing import BinaryIO
 from urllib.parse import quote
@@ -112,6 +113,16 @@ class StorageBackend(ABC):
         """Return whether an object exists for ``storage_key``."""
 
     @abstractmethod
+    def iter_objects(self) -> Iterator[tuple[str, float]]:
+        """Yield ``(storage_key, modified_epoch)`` for every stored object.
+
+        Used by the orphaned-blob reconciliation sweep to find objects that no
+        database row references. ``modified_epoch`` is a POSIX timestamp so the
+        sweep's age guard can skip anything written recently (e.g. by an upload
+        whose row is committed a moment later).
+        """
+
+    @abstractmethod
     def check_writable(self) -> None:
         """Verify the backend is reachable and writable.
 
@@ -188,6 +199,33 @@ class LocalStorageBackend(StorageBackend):
 
     def exists(self, storage_key: str) -> bool:
         return self._resolve(storage_key).is_file()
+
+    def iter_objects(self) -> Iterator[tuple[str, float]]:
+        """Yield ``(storage_key, mtime)`` for every stored file.
+
+        Walks the storage tree, skipping the resumable-upload scratch area
+        (``_incoming``) and hidden bookkeeping files (the ``.healthcheck-*``
+        readiness probes), so only real stored blobs are reported. Each file's
+        path relative to the base directory is exactly its storage key.
+        """
+        base = self.base_dir.resolve()
+        if not base.is_dir():
+            return
+        for path in base.rglob("*"):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(base)
+            # Skip the resumable-upload scratch area and any hidden bookkeeping
+            # file (e.g. the readiness probe left behind by a crash).
+            if relative.parts and relative.parts[0] == "_incoming":
+                continue
+            if relative.name.startswith("."):
+                continue
+            try:
+                modified = path.stat().st_mtime
+            except OSError:
+                continue
+            yield relative.as_posix(), modified
 
     def check_writable(self) -> None:
         """Verify the storage directory exists and is writable."""

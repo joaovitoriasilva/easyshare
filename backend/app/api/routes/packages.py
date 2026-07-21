@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import func, or_, select
 
@@ -33,7 +42,7 @@ from app.schemas.schemas import (
 )
 from app.services.archive import build_archive_download, validate_archive_request
 from app.services.counters import counter_buffer
-from app.services.files import store_package_file
+from app.services.files import delete_stored_files, store_package_file
 from app.services.quota import (
     QuotaExceededError,
     enforce_quota_after_write,
@@ -206,12 +215,27 @@ def update_package(
 
 
 @router.delete("/{package_id}", response_model=MessageResponse)
-def delete_package(package: OwnedPackage, db: DbSession) -> MessageResponse:
-    """Delete a package and all of its stored files."""
-    for file in package.files:
-        storage.delete(file.storage_key)
+def delete_package(
+    package: OwnedPackage, db: DbSession, background_tasks: BackgroundTasks
+) -> MessageResponse:
+    """Delete a package and all of its stored files.
+
+    The database rows (the authoritative record) are deleted synchronously, but
+    the stored blobs — each a network round-trip on object storage — are
+    reclaimed in a background task so the request never blocks on a long chain of
+    storage deletes. The orphaned-blob sweep is the backstop if a background
+    delete is interrupted.
+    """
+    storage_keys = list(
+        db.scalars(
+            select(PackageFile.storage_key).where(
+                PackageFile.package_id == package.id
+            )
+        )
+    )
     db.delete(package)
     db.commit()
+    background_tasks.add_task(delete_stored_files, storage_keys)
     return MessageResponse(detail="Package deleted")
 
 
@@ -348,20 +372,24 @@ def delete_file(record: OwnedFile, db: DbSession) -> MessageResponse:
 def delete_all_files(
     package: OwnedPackage,
     db: DbSession,
+    background_tasks: BackgroundTasks,
     file_ids: list[int] | None = Query(default=None),
 ) -> MessageResponse:
     """Delete files from a package, keeping the package itself.
 
     Owners may pass ``file_ids`` repeatedly to delete a specific subset;
-    omitting it deletes every file in the package.
+    omitting it deletes every file in the package. The rows are removed
+    synchronously; the stored blobs are reclaimed in a background task (with the
+    orphaned-blob sweep as backstop) so deleting many files never blocks the
+    request on a long chain of storage round-trips.
     """
     wanted = set(file_ids) if file_ids else None
-    removed = 0
+    storage_keys: list[str] = []
     for file in list(package.files):
         if wanted is not None and file.id not in wanted:
             continue
-        storage.delete(file.storage_key)
+        storage_keys.append(file.storage_key)
         db.delete(file)
-        removed += 1
     db.commit()
-    return MessageResponse(detail=f"Deleted {removed} file(s)")
+    background_tasks.add_task(delete_stored_files, storage_keys)
+    return MessageResponse(detail=f"Deleted {len(storage_keys)} file(s)")

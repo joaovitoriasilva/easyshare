@@ -7,10 +7,32 @@ export class ApiError extends Error {
     public status: number,
     message: string,
     public detail: unknown = null,
+    /** Seconds to wait before retrying, parsed from a 429 `Retry-After`. */
+    public retryAfter: number | null = null,
   ) {
     super(message);
     this.name = "ApiError";
   }
+}
+
+/**
+ * Parse a `Retry-After` header into whole seconds. Handles the common
+ * delta-seconds form (e.g. `"30"`) and the HTTP-date form; a missing or
+ * unparseable value yields `null`.
+ */
+export function parseRetryAfter(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.ceil(seconds);
+  }
+  const when = Date.parse(value);
+  if (!Number.isNaN(when)) {
+    return Math.max(0, Math.ceil((when - Date.now()) / 1000));
+  }
+  return null;
 }
 
 export function getToken(): string | null {
@@ -35,6 +57,18 @@ let unauthorizedHandler: UnauthorizedHandler | null = null;
  */
 export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
   unauthorizedHandler = handler;
+}
+
+type RateLimitedHandler = (retryAfterSeconds: number | null) => void;
+let rateLimitedHandler: RateLimitedHandler | null = null;
+
+/**
+ * Register a callback invoked whenever a request is rejected with 429 (rate
+ * limited), receiving the parsed `Retry-After` seconds (or `null`), so the app
+ * can surface one friendly, actionable message instead of a raw error.
+ */
+export function setRateLimitedHandler(handler: RateLimitedHandler | null): void {
+  rateLimitedHandler = handler;
 }
 
 interface RequestOptions {
@@ -135,6 +169,10 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (!response.ok) {
     const body = await response.text().catch(() => null);
     const error = buildApiError(response.status, response.statusText, body);
+    if (response.status === 429) {
+      error.retryAfter = parseRetryAfter(response.headers.get("Retry-After"));
+      rateLimitedHandler?.(error.retryAfter);
+    }
     if (
       response.status === 401 &&
       options.auth !== false &&
@@ -200,7 +238,16 @@ function upload<T>(path: string, file: File, options: UploadOptions = {}): Promi
       if (xhr.status === 401) {
         unauthorizedHandler?.();
       }
-      reject(buildApiError(xhr.status, xhr.statusText, xhr.responseText || null));
+      const error = buildApiError(
+        xhr.status,
+        xhr.statusText,
+        xhr.responseText || null,
+      );
+      if (xhr.status === 429) {
+        error.retryAfter = parseRetryAfter(xhr.getResponseHeader("Retry-After"));
+        rateLimitedHandler?.(error.retryAfter);
+      }
+      reject(error);
     });
 
     xhr.addEventListener("error", () =>

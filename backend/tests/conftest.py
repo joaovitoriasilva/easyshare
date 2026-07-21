@@ -14,6 +14,7 @@ from app.db.session import Base
 from app.main import app
 from app.services import chunked as chunked_module
 from app.services import counters as counters_module
+from app.services import files as files_module
 from app.services import storage as storage_module
 from app.services.quota import reset_total_usage_cache
 from fastapi.testclient import TestClient
@@ -72,6 +73,10 @@ def db_sessionmaker(tmp_path: Path) -> Generator[sessionmaker]:
     original_prune_sessionmaker = chunked_module.prune_sessionmaker
     chunked_module.prune_sessionmaker = TestingSessionLocal
 
+    # Point the orphaned-blob sweep at the isolated engine too.
+    original_orphan_sessionmaker = files_module.orphan_sessionmaker
+    files_module.orphan_sessionmaker = TestingSessionLocal
+
     original_audit_sessionmaker = audit_module.audit_sessionmaker
     audit_module.audit_sessionmaker = TestingSessionLocal
     # Start the audit buffer clean so buffered download events from a previous
@@ -90,6 +95,7 @@ def db_sessionmaker(tmp_path: Path) -> Generator[sessionmaker]:
     counters_module.counter_sessionmaker = original_counter_sessionmaker
     counters_module.counter_buffer.reset()
     chunked_module.prune_sessionmaker = original_prune_sessionmaker
+    files_module.orphan_sessionmaker = original_orphan_sessionmaker
     Base.metadata.drop_all(bind=engine)
 
 

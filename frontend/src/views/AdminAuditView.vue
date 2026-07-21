@@ -5,7 +5,7 @@ import { ApiError } from "@/api/client";
 import type { AuditEvent } from "@/api/types";
 import { useToasts } from "@/composables/useToasts";
 import AuditLogTable from "@/components/AuditLogTable.vue";
-import { Button, Input, Label, Skeleton } from "@/components/ui";
+import { Button, Input, Label, Pagination, Skeleton } from "@/components/ui";
 
 const toast = useToasts();
 const events = ref<AuditEvent[]>([]);
@@ -50,18 +50,9 @@ function applyFilters(): void {
   load();
 }
 
-function next(): void {
-  if (offset.value + limit < total.value) {
-    offset.value += limit;
-    load();
-  }
-}
-
-function prev(): void {
-  if (offset.value > 0) {
-    offset.value = Math.max(0, offset.value - limit);
-    load();
-  }
+function goToOffset(nextOffset: number): void {
+  offset.value = nextOffset;
+  void load();
 }
 
 onMounted(load);
@@ -94,22 +85,14 @@ onMounted(load);
     </div>
     <template v-else>
       <AuditLogTable :events="events" />
-      <div class="flex items-center justify-between text-sm text-muted-foreground">
-        <span>{{ total }} event(s)</span>
-        <div class="flex gap-2">
-          <Button variant="outline" size="sm" :disabled="offset === 0" @click="prev">
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            :disabled="offset + limit >= total"
-            @click="next"
-          >
-            Next
-          </Button>
-        </div>
-      </div>
+      <Pagination
+        v-if="total > limit"
+        :total="total"
+        :limit="limit"
+        :offset="offset"
+        :label="`${total} event${total === 1 ? '' : 's'}`"
+        @update:offset="goToOffset"
+      />
     </template>
   </div>
 </template>

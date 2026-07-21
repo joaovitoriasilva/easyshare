@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import io
+import os
+import time
 from unittest.mock import MagicMock
 
 import pytest
 from app.core.config import settings
+from app.models.models import PackageFile
+from app.services import storage as storage_module
+from app.services.files import prune_orphaned_blobs
 from app.services.storage import (
     FileTooLargeError,
     LocalStorageBackend,
@@ -19,6 +24,11 @@ from app.services.storage_s3 import (
 )
 from botocore.exceptions import ClientError
 from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.orm import sessionmaker
+
+from tests.conftest import register_and_login
 
 # --- Factory selection -----------------------------------------------------
 
@@ -167,3 +177,73 @@ def test_content_disposition_encodes_unicode() -> None:
     assert content_disposition_attachment("résumé.txt").startswith(
         "attachment; filename*=utf-8''"
     )
+
+
+# --- Object enumeration + orphaned-blob sweep ------------------------------
+
+
+def test_local_iter_objects_skips_scratch_and_hidden(tmp_path: object) -> None:
+    """``iter_objects`` reports real blobs but not scratch or bookkeeping files."""
+    backend = LocalStorageBackend(tmp_path / "store")  # type: ignore[operator]
+    backend.save("flatkey", io.BytesIO(b"a"))
+    backend.save("12/34_readable.txt", io.BytesIO(b"bb"))
+    # Scratch area and a readiness-probe leftover must be ignored.
+    (backend.base_dir / "_incoming").mkdir()
+    (backend.base_dir / "_incoming" / "scratch1").write_bytes(b"x")
+    (backend.base_dir / ".healthcheck-abc").write_bytes(b"")
+
+    found = dict(backend.iter_objects())
+    assert set(found) == {"flatkey", "12/34_readable.txt"}
+    assert all(isinstance(mtime, float) for mtime in found.values())
+
+
+def test_prune_orphaned_blobs_removes_only_old_unreferenced(
+    client: TestClient, db_sessionmaker: sessionmaker
+) -> None:
+    """The sweep deletes old unreferenced blobs, keeping referenced/recent ones."""
+    headers = register_and_login(client)
+    pkg_id = client.post(
+        "/api/packages", json={"name": "P"}, headers=headers
+    ).json()["id"]
+    client.post(
+        f"/api/packages/{pkg_id}/files",
+        files={"file": ("a.txt", io.BytesIO(b"hello"), "text/plain")},
+        headers=headers,
+    )
+    with db_sessionmaker() as session:
+        referenced_key = session.scalar(select(PackageFile.storage_key))
+    assert referenced_key is not None
+
+    base = storage_module.storage.base_dir
+    old_time = time.time() - 3 * 3600
+    # A referenced blob is kept even when old (proves the reference guard).
+    referenced_path = base / referenced_key
+    os.utime(referenced_path, (old_time, old_time))
+    # An old, unreferenced blob is an orphan and must be removed.
+    old_orphan = base / "old_orphan_key"
+    old_orphan.write_bytes(b"orphan")
+    os.utime(old_orphan, (old_time, old_time))
+    # A recent, unreferenced blob is protected by the age guard (it could be an
+    # upload whose row is about to commit).
+    recent_orphan = base / "recent_orphan_key"
+    recent_orphan.write_bytes(b"new orphan")
+
+    removed = prune_orphaned_blobs(retention_hours=1)
+
+    assert removed == 1
+    assert not old_orphan.exists()
+    assert recent_orphan.exists()
+    assert storage_module.storage.exists(referenced_key)
+
+
+def test_prune_orphaned_blobs_disabled_is_noop(
+    client: TestClient,
+) -> None:
+    """A non-positive retention disables the sweep entirely."""
+    base = storage_module.storage.base_dir
+    base.mkdir(parents=True, exist_ok=True)
+    orphan = base / "would_be_orphan"
+    orphan.write_bytes(b"x")
+    os.utime(orphan, (time.time() - 10 * 3600, time.time() - 10 * 3600))
+    assert prune_orphaned_blobs(retention_hours=0) == 0
+    assert orphan.exists()

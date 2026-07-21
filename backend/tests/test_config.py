@@ -43,6 +43,7 @@ def test_distributed_allows_redis_rate_limit_store() -> None:
         deployment_profile="distributed",
         rate_limit_storage_uri="redis://localhost:6379/0",
         database_url="postgresql+psycopg://user:pass@db/easyshare",
+        storage_uri="s3://easyshare-bucket",
     )
     assert settings.deployment_profile == "distributed"
 
@@ -53,6 +54,17 @@ def test_distributed_rejects_sqlite_database() -> None:
             deployment_profile="distributed",
             rate_limit_storage_uri="redis://localhost:6379/0",
             database_url="sqlite:///./easyshare.db",
+            storage_uri="s3://easyshare-bucket",
+        )
+
+
+def test_distributed_rejects_local_storage() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            deployment_profile="distributed",
+            rate_limit_storage_uri="redis://localhost:6379/0",
+            database_url="postgresql+psycopg://user:pass@db/easyshare",
+            storage_uri="",
         )
 
 
