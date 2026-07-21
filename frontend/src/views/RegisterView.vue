@@ -17,6 +17,7 @@ import {
   Input,
   Label,
   PasswordInput,
+  PasswordStrength,
   Tooltip,
 } from "@/components/ui";
 
@@ -98,6 +99,7 @@ async function submit(): Promise<void> {
               placeholder="Password"
               :aria-invalid="password && !passwordValid ? 'true' : undefined"
             />
+            <PasswordStrength :password="password" />
             <p class="text-xs text-muted-foreground">At least 8 characters.</p>
           </div>
           <Alert v-if="error" kind="error">{{ error }}</Alert>

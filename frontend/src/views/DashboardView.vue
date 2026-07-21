@@ -53,6 +53,10 @@ const usagePercent = computed(() => {
   );
 });
 
+// 1-based current page and total page count, for the pagination read-out.
+const currentPage = computed(() => Math.floor(offset.value / pageSize) + 1);
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
+
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
@@ -332,21 +336,24 @@ onMounted(() => {
 
       <div
         v-if="total > pageSize"
-        class="flex items-center justify-between text-sm text-muted-foreground"
+        class="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between"
       >
         <span>{{ total }} package{{ total === 1 ? "" : "s" }}</span>
-        <div class="flex gap-2">
-          <Button variant="outline" size="sm" :disabled="offset === 0" @click="prev">
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            :disabled="offset + pageSize >= total"
-            @click="next"
-          >
-            Next
-          </Button>
+        <div class="flex items-center gap-3">
+          <span class="tabular-nums">Page {{ currentPage }} of {{ totalPages }}</span>
+          <div class="flex gap-2">
+            <Button variant="outline" size="sm" :disabled="offset === 0" @click="prev">
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="offset + pageSize >= total"
+              @click="next"
+            >
+              Next
+            </Button>
+          </div>
         </div>
       </div>
     </template>

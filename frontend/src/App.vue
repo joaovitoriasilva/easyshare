@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { ref, watch, computed } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
-import { Package2, LogOut, Menu, X } from "@lucide/vue";
+import { Package2, LogOut, Menu, X, WifiOff } from "@lucide/vue";
 import { useAuthStore } from "@/stores/auth";
 import { Button, Toaster, ConfirmDialog, NavigationProgress } from "@/components/ui";
 import ThemeToggle from "@/components/ThemeToggle.vue";
 import UploadIndicator from "@/components/UploadIndicator.vue";
 import { routeAnnouncement } from "@/composables/useDocumentTitle";
+import { useNetworkStatus } from "@/composables/useNetworkStatus";
 
 const auth = useAuthStore();
 const router = useRouter();
 const route = useRoute();
+const { online } = useNetworkStatus();
 
 const mobileOpen = ref(false);
 
@@ -38,6 +40,17 @@ function logout(): void {
     <!-- Announces the current page to assistive tech after a client-side
          navigation, which otherwise produces no announcement. -->
     <div class="sr-only" role="status" aria-live="polite">{{ routeAnnouncement }}</div>
+    <!-- Connectivity banner: warns the moment the browser goes offline so a
+         failed request reads as "you're offline" rather than a vague error. -->
+    <div
+      v-if="!online"
+      role="status"
+      aria-live="polite"
+      class="flex items-center justify-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-center text-sm text-amber-700 dark:text-amber-300"
+    >
+      <WifiOff class="h-4 w-4 shrink-0" />
+      <span>You're offline. Some actions may not work until your connection returns.</span>
+    </div>
     <a
       href="#main-content"
       class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-3 focus:z-[300] focus:rounded-md focus:bg-background focus:px-3 focus:py-2 focus:text-sm focus:shadow focus:ring-2 focus:ring-ring"

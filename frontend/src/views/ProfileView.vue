@@ -17,6 +17,7 @@ import {
   CardTitle,
   Label,
   PasswordInput,
+  PasswordStrength,
 } from "@/components/ui";
 
 const auth = useAuthStore();
@@ -205,6 +206,7 @@ onMounted(loadUsage);
               v-model="newPassword"
               placeholder="New password"
             />
+            <PasswordStrength :password="newPassword" />
             <p
               class="text-xs"
               :class="newPasswordInvalid ? 'text-destructive' : 'text-muted-foreground'"

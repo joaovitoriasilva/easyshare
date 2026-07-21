@@ -11,6 +11,7 @@ from sqlalchemy.engine import CursorResult
 from app.api.deps import AdminUser, DbSession
 from app.core.audit import record_event
 from app.core.security import hash_password
+from app.db.pagination import paginate
 from app.models.models import Package, PackageFile, User
 from app.schemas.schemas import (
     AdminUserRead,
@@ -42,14 +43,11 @@ def list_users(
     offset: int = Query(default=0, ge=0),
 ) -> UserPage:
     """List all registered users, newest first (administrators only)."""
-    total = db.scalar(select(func.count()).select_from(User)) or 0
-    users = list(
-        db.scalars(
-            select(User)
-            .order_by(User.created_at.desc())
-            .limit(limit)
-            .offset(offset)
-        )
+    users, total = paginate(
+        db,
+        select(User).order_by(User.created_at.desc()),
+        limit=limit,
+        offset=offset,
     )
     # Aggregate storage usage for just the listed users in one grouped query
     # (avoids a per-user aggregate on paginated listings).

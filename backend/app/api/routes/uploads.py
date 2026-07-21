@@ -30,8 +30,12 @@ from app.schemas.schemas import (
 )
 from app.services import chunked
 from app.services.files import store_package_file
-from app.services.quota import remaining_upload_cap
-from app.services.storage import FileTooLargeError
+from app.services.quota import (
+    QuotaExceededError,
+    enforce_quota_after_write,
+    remaining_upload_cap,
+)
+from app.services.storage import FileTooLargeError, storage
 from app.services.validation import sanitize_upload_filename
 
 router = APIRouter(prefix="/packages/{package_id}/uploads", tags=["uploads"])
@@ -143,6 +147,21 @@ def _finalize(db: DbSession, package: OwnedPackage, session: UploadSession) -> P
         db.commit()
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=cap_message
+        ) from exc
+    # Authoritative quota re-check (see enforce_quota_after_write): closes the
+    # window where several uploads for one user finalise at once and each pass
+    # the check above. On failure the stored bytes, the file row and the session
+    # are all removed.
+    try:
+        enforce_quota_after_write(db, package)
+    except QuotaExceededError as exc:
+        storage_key = record.storage_key
+        db.rollback()
+        storage.delete(storage_key)
+        db.execute(delete(UploadSession).where(UploadSession.token == token))
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=str(exc)
         ) from exc
     db.delete(session)
     db.commit()

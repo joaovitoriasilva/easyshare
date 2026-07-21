@@ -230,4 +230,24 @@ describe("useUploads", () => {
     dismissUpload(12, 0);
     expect(uploadsFor(12).value).toEqual([]);
   });
+
+  it("clears completed rows but keeps failed ones", async () => {
+    uploadFileMock
+      .mockResolvedValueOnce(undefined) // a.txt succeeds
+      .mockRejectedValueOnce(new ApiError(500, "boom")); // b.txt fails
+    const { startUploads, clearCompleted, uploadsFor } = useUploads();
+
+    await startUploads(300, [makeFile("a.txt"), makeFile("b.txt")], 1000);
+    const items = uploadsFor(300);
+    expect(items.value).toHaveLength(2);
+    expect([...items.value].map((item) => item.status).sort()).toEqual([
+      "done",
+      "error",
+    ]);
+
+    clearCompleted(300);
+
+    expect(items.value).toHaveLength(1);
+    expect(items.value[0].status).toBe("error");
+  });
 });

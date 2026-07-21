@@ -5,11 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Query
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import AdminUser, CurrentUser, DbSession
 from app.core.config import settings
+from app.db.pagination import paginate
 from app.models.models import AuditEvent, Package
 from app.schemas.schemas import AuditEventRead, AuditPage
 
@@ -21,9 +22,8 @@ def _page(db: Session, conditions: list[Any], limit: int, offset: int) -> AuditP
     stmt = select(AuditEvent)
     if conditions:
         stmt = stmt.where(*conditions)
-    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-    events = db.scalars(
-        stmt.order_by(AuditEvent.id.desc()).limit(limit).offset(offset)
+    events, total = paginate(
+        db, stmt.order_by(AuditEvent.id.desc()), limit=limit, offset=offset
     )
     return AuditPage(
         items=[AuditEventRead.model_validate(event) for event in events],

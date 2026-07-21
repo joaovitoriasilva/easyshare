@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.models import Package, PackageFile
+from app.models.models import Package, PackageFile, User
 
 # How long a scanned instance-wide total may be reused before rescanning.
 _TOTAL_USAGE_CACHE_TTL = 10.0  # seconds
@@ -87,3 +87,54 @@ def remaining_upload_cap(db: Session, package: Package) -> tuple[int, str]:
             (remaining_total, "Upload would exceed the server storage limit")
         )
     return min(limits, key=lambda item: item[0])
+
+
+class QuotaExceededError(Exception):
+    """Raised when a stored file is found to overrun a quota after it was written.
+
+    Distinct from the up-front :func:`remaining_upload_cap` check (a fast reject
+    before any bytes are written): this is raised by
+    :func:`enforce_quota_after_write`, the authoritative re-check made once the
+    new row is flushed, so concurrent uploads that each pass the up-front check
+    cannot silently overrun the quota together.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+def enforce_quota_after_write(db: Session, package: Package) -> None:
+    """Re-check quotas after the new file row is flushed, serialising per owner.
+
+    ``remaining_upload_cap`` is checked before the write, so two concurrent
+    uploads for the same user can both pass it and then both commit, together
+    exceeding the quota (a time-of-check/time-of-use gap). This authoritative
+    re-check runs *after* the new ``PackageFile`` row has been flushed — so the
+    row is included in the usage sum — while holding a row lock on the owner:
+    concurrent uploads for that user therefore serialise here, and the later one
+    observes the earlier's committed size and is rejected. The lock is a no-op on
+    SQLite (which already serialises writers). Because the file bytes are already
+    written by the time this runs, the lock is held only for this check and the
+    commit that follows, never for the (potentially long) transfer itself.
+
+    Raises:
+        QuotaExceededError: When the per-user or instance quota is now exceeded.
+    """
+    # Lock the owner row so a concurrent upload for the same user waits here and
+    # then sees this upload's committed size, closing the TOCTOU window.
+    db.execute(
+        select(User.id).where(User.id == package.owner_id).with_for_update()
+    ).one()
+    per_user_quota = package.owner.storage_quota
+    if per_user_quota > 0 and user_storage_used(db, package.owner_id) > per_user_quota:
+        raise QuotaExceededError("Upload would exceed your storage quota")
+    # The instance-wide cap is only a coarse safety net (its usual read is cached
+    # and tolerates a small overshoot), so it is re-checked exactly but not
+    # globally serialised — two different users could still race it by a bounded
+    # amount, which is acceptable for the opt-in instance limit.
+    if (
+        settings.storage_quota_total > 0
+        and total_storage_used(db) > settings.storage_quota_total
+    ):
+        raise QuotaExceededError("Upload would exceed the server storage limit")

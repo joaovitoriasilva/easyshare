@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -238,6 +239,15 @@ class AuditEvent(Base):
     """An append-only record of a security-relevant action."""
 
     __tablename__ = "audit_log"
+
+    # Composite/extra indexes for the read paths that filter on several columns
+    # at once, complementing the single-column indexes below: (package_id,
+    # action) serves the owner-activity and per-package stats queries, and actor
+    # serves the admin audit view's "filter by actor" path.
+    __table_args__ = (
+        Index("ix_audit_log_package_action", "package_id", "action"),
+        Index("ix_audit_log_actor", "actor"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     created_at: Mapped[datetime] = mapped_column(

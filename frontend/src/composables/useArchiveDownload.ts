@@ -1,5 +1,6 @@
 import { computed, ref } from "vue";
 import { downloadUrl, streamArchiveDownload } from "@/lib/download";
+import { createTransferRate } from "@/lib/transferRate";
 
 /**
  * Drives a single archive (zip) download with an in-app progress read-out.
@@ -18,42 +19,20 @@ export function useArchiveDownload() {
   const bytesPerSecond = ref(0);
   const etaSeconds = ref<number | null>(null);
   let controller: AbortController | null = null;
-  // Sampling cursor for the smoothed transfer-rate estimate.
-  let sampleTime = 0;
-  let sampleBytes = 0;
-  let smoothedBps = 0;
+  // Smoothed transfer-rate estimator shared with the upload flow.
+  const rate = createTransferRate();
 
   function resetSpeed(): void {
     bytesPerSecond.value = 0;
     etaSeconds.value = null;
-    sampleTime = 0;
-    sampleBytes = 0;
-    smoothedBps = 0;
+    rate.reset();
   }
 
   /** Update the smoothed rate and ETA from the latest received/total counters. */
   function sampleSpeed(): void {
-    const now =
-      typeof performance !== "undefined" ? performance.now() : Date.now();
-    if (sampleTime === 0) {
-      sampleTime = now;
-      sampleBytes = received.value;
-      return;
-    }
-    const dt = (now - sampleTime) / 1000;
-    if (dt < 0.4) {
-      return;
-    }
-    const instant = Math.max(0, (received.value - sampleBytes) / dt);
-    smoothedBps = smoothedBps === 0 ? instant : smoothedBps * 0.7 + instant * 0.3;
-    sampleTime = now;
-    sampleBytes = received.value;
-    bytesPerSecond.value = smoothedBps;
-    const totalBytes = total.value;
-    etaSeconds.value =
-      totalBytes && totalBytes > 0 && smoothedBps > 0
-        ? Math.max(0, (totalBytes - received.value) / smoothedBps)
-        : null;
+    const next = rate.sample(received.value, total.value);
+    bytesPerSecond.value = next.bytesPerSecond;
+    etaSeconds.value = next.etaSeconds;
   }
 
   /** Whole-number percentage, capped at 99 until done, or null when unknown. */

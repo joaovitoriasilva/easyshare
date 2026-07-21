@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from app.models.models import Package, PackageFile, User
 from app.services import quota
 from sqlalchemy.orm import sessionmaker
@@ -61,3 +62,73 @@ def test_user_storage_used_is_scoped_to_owner(db_sessionmaker: sessionmaker) -> 
         db.commit()
 
         assert quota.user_storage_used(db, owner.id) == 42
+
+
+def test_enforce_quota_after_write_passes_within_quota(
+    db_sessionmaker: sessionmaker,
+) -> None:
+    """The authoritative re-check is a no-op while usage stays within budget."""
+    with db_sessionmaker() as db:
+        user = User(
+            email="a@example.com", username="a", hashed_password="x", storage_quota=1000
+        )
+        db.add(user)
+        db.flush()
+        package = Package(owner_id=user.id, name="p")
+        db.add(package)
+        db.flush()
+        db.add(
+            PackageFile(package_id=package.id, filename="a", size=500, storage_key="k1")
+        )
+        db.flush()
+        # 500 <= 1000: no exception.
+        quota.enforce_quota_after_write(db, package)
+
+
+def test_enforce_quota_after_write_rejects_over_user_quota(
+    db_sessionmaker: sessionmaker,
+) -> None:
+    """A flushed row that pushes the owner over their quota is rejected.
+
+    This is the race the up-front check cannot catch: two concurrent uploads
+    each pass ``remaining_upload_cap`` and only the post-write re-check, run with
+    the new row already flushed, sees the overrun.
+    """
+    with db_sessionmaker() as db:
+        user = User(
+            email="a@example.com", username="a", hashed_password="x", storage_quota=100
+        )
+        db.add(user)
+        db.flush()
+        package = Package(owner_id=user.id, name="p")
+        db.add(package)
+        db.flush()
+        db.add(
+            PackageFile(package_id=package.id, filename="a", size=150, storage_key="k1")
+        )
+        db.flush()
+        with pytest.raises(quota.QuotaExceededError):
+            quota.enforce_quota_after_write(db, package)
+
+
+def test_enforce_quota_after_write_rejects_over_instance_total(
+    db_sessionmaker: sessionmaker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The instance-wide cap is re-checked exactly (unlimited per-user quota)."""
+    monkeypatch.setattr(quota.settings, "storage_quota_total", 100)
+    with db_sessionmaker() as db:
+        user = User(
+            email="a@example.com", username="a", hashed_password="x", storage_quota=0
+        )
+        db.add(user)
+        db.flush()
+        package = Package(owner_id=user.id, name="p")
+        db.add(package)
+        db.flush()
+        db.add(
+            PackageFile(package_id=package.id, filename="a", size=150, storage_key="k1")
+        )
+        db.flush()
+        with pytest.raises(quota.QuotaExceededError):
+            quota.enforce_quota_after_write(db, package)

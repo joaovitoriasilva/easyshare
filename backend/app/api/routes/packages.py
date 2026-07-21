@@ -16,6 +16,7 @@ from app.api.deps import (
 from app.core.config import settings
 from app.core.rate_limit import EXPENSIVE, limiter
 from app.core.security import create_download_token
+from app.db.pagination import paginate
 from app.models.models import AuditEvent, Package, PackageFile
 from app.schemas.schemas import (
     DownloadToken,
@@ -31,7 +32,11 @@ from app.schemas.schemas import (
 from app.services.archive import build_archive_download, validate_archive_request
 from app.services.counters import counter_buffer
 from app.services.files import store_package_file
-from app.services.quota import remaining_upload_cap
+from app.services.quota import (
+    QuotaExceededError,
+    enforce_quota_after_write,
+    remaining_upload_cap,
+)
 from app.services.storage import FileTooLargeError, storage
 from app.services.validation import sanitize_upload_filename
 
@@ -84,17 +89,11 @@ def list_packages(
                 Package.description.ilike(pattern, escape="\\"),
             )
         )
-    total = (
-        db.scalar(select(func.count()).select_from(Package).where(*filters)) or 0
-    )
-    items = list(
-        db.scalars(
-            select(Package)
-            .where(*filters)
-            .order_by(Package.created_at.desc())
-            .limit(limit)
-            .offset(offset)
-        )
+    items, total = paginate(
+        db,
+        select(Package).where(*filters).order_by(Package.created_at.desc()),
+        limit=limit,
+        offset=offset,
     )
     # One grouped query yields the file count for just the packages on this page.
     package_ids = [pkg.id for pkg in items]
@@ -253,6 +252,20 @@ def upload_file(
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=cap_message,
+        ) from exc
+
+    # Authoritative quota re-check now that the real size is known and the row is
+    # flushed: closes the window where concurrent uploads for the same user each
+    # pass the up-front check above and together overrun the quota. On failure
+    # the stored bytes and the flushed row are both undone.
+    try:
+        enforce_quota_after_write(db, package)
+    except QuotaExceededError as exc:
+        storage_key = record.storage_key
+        db.rollback()
+        storage.delete(storage_key)
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=str(exc)
         ) from exc
 
     db.commit()

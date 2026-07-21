@@ -69,7 +69,7 @@ const qr = ref<InstanceType<typeof QrCode> | null>(null);
 // Upload state lives in a module-level composable, keyed by package id, so a
 // running upload's progress is preserved when the user leaves this package and
 // comes back to it.
-const { uploadsFor, isUploading, uploadRateFor, startUploads, cancelUpload, retryUpload, retryAllFailed, dismissUpload, bindUploaded } =
+const { uploadsFor, isUploading, uploadRateFor, startUploads, cancelUpload, retryUpload, retryAllFailed, dismissUpload, clearCompleted, bindUploaded } =
   useUploads();
 const uploads = uploadsFor(packageId);
 const uploading = isUploading(packageId);
@@ -865,45 +865,41 @@ onMounted(() => {
             </div>
 
             <div
-              role="button"
-              tabindex="0"
-              aria-label="Upload files"
-              class="flex flex-col items-center justify-center rounded-md border border-dashed px-4 py-8 text-center transition-colors"
+              class="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed px-4 py-8 text-center transition-colors"
               :class="[
                 dragging ? 'border-primary bg-primary/5' : 'border-input',
-                uploading
-                  ? 'pointer-events-none opacity-60'
-                  : 'cursor-pointer hover:border-primary',
+                uploading ? 'pointer-events-none opacity-60' : '',
               ]"
-              @click="fileInput?.click()"
-              @keydown.enter.prevent="fileInput?.click()"
-              @keydown.space.prevent="fileInput?.click()"
               @dragover.prevent="dragging = true"
               @dragenter.prevent="dragging = true"
               @dragleave.prevent="dragging = false"
               @drop.prevent="onDrop"
             >
-              <div class="pointer-events-none flex flex-col items-center gap-1">
-                <Upload class="h-6 w-6 text-muted-foreground" />
-                <p class="text-sm">
-                  <span class="font-medium text-primary">Click to upload</span>
-                  or drag and drop
-                </p>
+              <Upload class="h-6 w-6 text-muted-foreground" />
+              <div>
+                <p class="text-sm">Drag and drop files or a folder here</p>
                 <p class="text-xs text-muted-foreground">
                   Up to {{ formatBytes(auth.maxFileSize) }} per file
                 </p>
               </div>
-            </div>
-
-            <div class="flex justify-center">
-              <Button
-                variant="ghost"
-                size="sm"
-                :disabled="uploading"
-                @click="folderInput?.click()"
-              >
-                <FolderUp class="h-4 w-4" /> Upload a folder
-              </Button>
+              <div class="flex flex-wrap items-center justify-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  :disabled="uploading"
+                  @click="fileInput?.click()"
+                >
+                  <Upload class="h-4 w-4" /> Choose files
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  :disabled="uploading"
+                  @click="folderInput?.click()"
+                >
+                  <FolderUp class="h-4 w-4" /> Choose folder
+                </Button>
+              </div>
             </div>
 
             <div v-if="uploadSummary" class="space-y-1.5">
@@ -941,7 +937,7 @@ onMounted(() => {
                   {{ formatDuration(uploadRate.etaSeconds) }} left
                 </span>
               </div>
-              <div v-if="!uploading && uploadSummary.failed > 0">
+              <div v-if="!uploading && uploadSummary.failed > 0" class="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -949,6 +945,15 @@ onMounted(() => {
                   @click="retryAllFailed(packageId)"
                 >
                   <RotateCw class="h-4 w-4" /> Retry all failed
+                </Button>
+                <Button
+                  v-if="uploadSummary.done > 0"
+                  variant="ghost"
+                  size="sm"
+                  class="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground"
+                  @click="clearCompleted(packageId)"
+                >
+                  <X class="h-4 w-4" /> Clear completed
                 </Button>
               </div>
             </div>

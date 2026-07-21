@@ -1,8 +1,9 @@
-import { computed, reactive, type ComputedRef } from "vue";
+import { computed, reactive, watch, type ComputedRef } from "vue";
 import { packagesApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { PackageFile } from "@/api/types";
 import { uploadFileChunked } from "@/lib/chunkedUpload";
+import { createTransferRate, type TransferRateTracker } from "@/lib/transferRate";
 import { useAuthStore } from "@/stores/auth";
 import { useToasts } from "@/composables/useToasts";
 import { formatBytes } from "@/lib/format";
@@ -109,20 +110,30 @@ const activeBatches = computed<UploadBatchSummary[]>(() => {
 
 const hasActiveUploads = computed(() => activeBatches.value.length > 0);
 
-// Non-reactive per-package sampling cursor for the transfer-speed estimate. Kept
-// out of the reactive store so taking a sample never triggers a render; only the
-// smoothed result written back onto the batch does.
-interface SpeedSample {
-  time: number;
-  loaded: number;
-  bps: number;
+// Warn before a full page unload while any upload is still running: a
+// single-shot upload would restart from zero (chunked uploads can resume from
+// the server's offset, but the in-memory batch state and progress are still
+// lost). The listener is toggled with the active-uploads flag and registered
+// once at module load.
+if (typeof window !== "undefined") {
+  const warnBeforeUnload = (event: BeforeUnloadEvent): void => {
+    event.preventDefault();
+    // Legacy browsers require returnValue to be set to trigger the prompt.
+    event.returnValue = "";
+  };
+  watch(hasActiveUploads, (active) => {
+    if (active) {
+      window.addEventListener("beforeunload", warnBeforeUnload);
+    } else {
+      window.removeEventListener("beforeunload", warnBeforeUnload);
+    }
+  });
 }
-const speedSamples = new Map<number, SpeedSample>();
-// Ignore samples closer together than this so a burst of progress events yields
-// a stable rate rather than a noisy one.
-const SPEED_SAMPLE_INTERVAL_MS = 400;
-// Exponential-moving-average weight for the newest instantaneous rate.
-const SPEED_SMOOTHING = 0.3;
+
+// Non-reactive per-package transfer-rate trackers. Kept out of the reactive
+// store so taking a sample never triggers a render; only the smoothed result
+// written back onto the batch does.
+const speedTrackers = new Map<number, TransferRateTracker>();
 
 /** Bytes uploaded so far / total bytes across a batch (progress-weighted). */
 function batchBytes(entry: PackageUpload): { loaded: number; total: number } {
@@ -141,29 +152,20 @@ function refreshSpeed(packageId: number): void {
   if (!entry) {
     return;
   }
-  const now =
-    typeof performance !== "undefined" ? performance.now() : Date.now();
+  let tracker = speedTrackers.get(packageId);
+  if (!tracker) {
+    tracker = createTransferRate();
+    speedTrackers.set(packageId, tracker);
+  }
   const { loaded, total } = batchBytes(entry);
-  const prev = speedSamples.get(packageId);
-  if (!prev) {
-    speedSamples.set(packageId, { time: now, loaded, bps: 0 });
-    return;
-  }
-  const dt = (now - prev.time) / 1000;
-  if (dt < SPEED_SAMPLE_INTERVAL_MS / 1000) {
-    return;
-  }
-  const instant = Math.max(0, (loaded - prev.loaded) / dt);
-  const bps =
-    prev.bps === 0 ? instant : prev.bps * (1 - SPEED_SMOOTHING) + instant * SPEED_SMOOTHING;
-  speedSamples.set(packageId, { time: now, loaded, bps });
-  entry.bytesPerSecond = bps;
-  entry.etaSeconds = bps > 0 ? Math.max(0, (total - loaded) / bps) : null;
+  const rate = tracker.sample(loaded, total);
+  entry.bytesPerSecond = rate.bytesPerSecond;
+  entry.etaSeconds = rate.etaSeconds;
 }
 
 /** Clear a batch's speed estimate (batch finished or was removed). */
 function resetSpeed(packageId: number): void {
-  speedSamples.delete(packageId);
+  speedTrackers.delete(packageId);
   const entry = uploadsByPackage.get(packageId);
   if (entry) {
     entry.bytesPerSecond = 0;
@@ -495,6 +497,37 @@ export function useUploads() {
     }
   }
 
+  /**
+   * Drop every successfully-completed row from an idle batch, keeping any
+   * failed/cancelled rows so the user can still retry or dismiss them. Rebuilds
+   * the parallel control arrays so the surviving rows keep aligned indices, and
+   * removes the batch entirely once nothing is left.
+   */
+  function clearCompleted(packageId: number): void {
+    const entry = uploadsByPackage.get(packageId);
+    const control = controlByPackage.get(packageId);
+    if (!entry || !control || entry.active) {
+      return;
+    }
+    const keep = entry.items.reduce<number[]>((indices, item, index) => {
+      if (item.status !== "done") {
+        indices.push(index);
+      }
+      return indices;
+    }, []);
+    if (keep.length === entry.items.length) {
+      return;
+    }
+    entry.items = keep.map((index) => entry.items[index]);
+    control.files = keep.map((index) => control.files[index]);
+    control.controllers = keep.map((index) => control.controllers[index]);
+    control.canceled.clear();
+    if (entry.items.length === 0) {
+      uploadsByPackage.delete(packageId);
+      controlByPackage.delete(packageId);
+    }
+  }
+
   return {
     uploadsFor,
     isUploading,
@@ -505,6 +538,7 @@ export function useUploads() {
     retryUpload,
     retryAllFailed,
     dismissUpload,
+    clearCompleted,
     activeBatches,
     hasActiveUploads,
   };

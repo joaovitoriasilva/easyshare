@@ -423,6 +423,7 @@ def download_shared_file(
     file_id: int,
     db: DbSession,
     request: Request,
+    background_tasks: BackgroundTasks,
     access: str | None = Query(default=None),
 ) -> Response:
     """Download a single file from a share."""
@@ -438,7 +439,12 @@ def download_shared_file(
     # Buffer the download count in memory (flushed in coalesced batches) instead
     # of an UPDATE + commit on the file row per hit.
     counter_buffer.add_downloads([record.id])
-    record_event(
+    # Persist the audit row off the request's critical path: a viral link would
+    # otherwise pay an INSERT + commit per download before the file even begins
+    # streaming. The task runs after the response is sent, while the request-id
+    # contextvar is still bound, so log correlation is preserved.
+    background_tasks.add_task(
+        record_event,
         "share.download",
         request=request,
         actor=email,
@@ -457,6 +463,7 @@ def download_shared_archive(
     token: str,
     db: DbSession,
     request: Request,
+    background_tasks: BackgroundTasks,
     access: str | None = Query(default=None),
     file_ids: list[int] | None = Query(default=None),
 ) -> StreamingResponse:
@@ -489,7 +496,10 @@ def download_shared_archive(
         package_name=share.package.name,
         on_complete=lambda: counter_buffer.add_downloads(selected_ids),
     )
-    record_event(
+    # Deferred like the single-file path so the audit INSERT + commit never sits
+    # on the request's critical path; it runs once the archive has streamed.
+    background_tasks.add_task(
+        record_event,
         "share.download",
         request=request,
         actor=email,
