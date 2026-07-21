@@ -17,12 +17,13 @@ link and download all files, or just the ones they select, as a zip archive.
 | Backend   | Python, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic               |
 | Auth      | JWT access tokens, Argon2id password hashing                      |
 | Tests     | pytest (backend), Vitest (frontend)                               |
-| CI        | GitHub Actions (lint, type-check, tests, build, dependency audit) |
+| CI        | Forgejo Actions (lint, type-check, tests, build, dependency audit) |
 
 ## Features
 
 - Email + password authentication with JWT sessions.
-- Create packages and upload one or many files.
+- Create packages and upload one or many files, with drag-and-drop, progress,
+  cancel/retry and resumable chunked uploads for large files.
 - Opt-in sharing with a securely generated share id (token).
 - Two visibility modes:
   - **Public** — anyone with the link can view and download.
@@ -42,15 +43,25 @@ link and download all files, or just the ones they select, as a zip archive.
   via `EASYSHARE_OBFUSCATE_STORAGE_NAMES`); path traversal is prevented on every
   access.
 - Input is validated with Pydantic v2; CORS origins are configurable.
-- CI runs `npm audit` and dependencies were checked against the GitHub
-  Advisory Database.
+- `Strict-Transport-Security` (HSTS) is sent on HTTPS responses by default;
+  a background sweep reconciles orphaned storage objects that lost their
+  database row (e.g. after a crash mid-upload).
+- CI runs `pip-audit` and `npm audit`, and dependencies were checked against
+  the GitHub Advisory Database.
+
+## Screenshots
+
+| | |
+| --- | --- |
+| ![Packages dashboard](screenshots/dashboard.png) Dashboard — packages overview, storage usage and search | ![Package details](screenshots/package.png) Package details — files, sharing settings and share link |
+| ![User profile](screenshots/profile.png) Profile — account details, storage usage and password change | ![User management](screenshots/users.png) Admin — user management and storage quotas |
 
 ## Repository layout
 
 ```
 backend/    FastAPI application, models, migrations and tests
 frontend/   Vue 3 single-page application and tests
-.github/    CI workflows
+.forgejo/   CI workflows
 Dockerfile  Single image: builds the frontend, bundles it into the backend
 docker-compose.yml
 ```
@@ -163,20 +174,32 @@ running with Docker.
 | `EASYSHARE_STORAGE_DIR`                  | `./storage`                          | Directory (or mounted volume) where uploaded files are stored (local backend). |
 | `EASYSHARE_MAX_FILE_SIZE`                | `104857600` (100 MB)                 | Maximum size, in bytes, allowed for a single uploaded file.                  |
 | `EASYSHARE_MAX_FILES_PER_PACKAGE`        | `50`                                  | Maximum number of files allowed in a single package.                        |
+| `EASYSHARE_MAX_JSON_BODY_SIZE`           | `1048576` (1 MiB)                    | Hard cap on a non-multipart (e.g. JSON) request body, enforced up front so a small API endpoint can never be made to buffer a huge document. |
+| `EASYSHARE_CHUNK_SIZE`                   | `8388608` (8 MiB)                    | Chunk size advertised to clients for resumable/chunked uploads.             |
+| `EASYSHARE_MAX_CHUNK_SIZE`               | `16777216` (16 MiB)                  | Server-side hard cap on a single chunk upload request (must be >= `EASYSHARE_CHUNK_SIZE`). |
+| `EASYSHARE_UPLOAD_SESSION_TTL_HOURS`     | `24`                                 | How long an abandoned resumable-upload session (and its scratch file) survives before the background sweep removes it. |
+| `EASYSHARE_UPLOAD_PRUNE_INTERVAL_HOURS`  | `6`                                  | How often, in hours, the abandoned-upload-session sweep runs.                |
 | `EASYSHARE_MAX_ARCHIVE_SIZE`             | `5368709120` (5 GiB)                 | Maximum combined size, in bytes, of a zip download; larger selections are rejected with 413. |
 | `EASYSHARE_MAX_CONCURRENT_ARCHIVE_BUILDS` | `4`                                | Maximum number of zip archives built at once. Each build holds a worker thread, so extra requests get 503 (retry) instead of stalling the whole service. |
 | `EASYSHARE_STORAGE_QUOTA_TOTAL`          | `0`                                  | Instance-wide storage cap, in bytes; uploads that would exceed it are rejected with 413. `0` (the default) disables the check. |
 | `EASYSHARE_STORAGE_QUOTA_PER_USER`       | `1073741824` (1 GiB)                 | Storage budget, in bytes, assigned to each user when their account is created (`0` = unlimited). Defaults to 1 GiB so open registration cannot fill the disk without bound. Existing users keep the value snapshotted at creation; changing it later only affects new accounts. Administrators can adjust any user's quota afterwards on the admin users page. |
 | `EASYSHARE_OBFUSCATE_STORAGE_NAMES`      | `true`                               | When `true`, stored files get opaque random names on disk. Set to `false` to store them under readable `{package_id}/{file_id}_{filename}` paths instead. The original filename is always kept in the database; only files uploaded after the change are affected. |
+| `EASYSHARE_STORAGE_ORPHAN_RETENTION_HOURS` | `24`                              | Age, in hours, before a stored object with no matching database row is treated as an orphan (e.g. from a crash between writing bytes and committing the row) and swept by a background task. `0` disables the sweep. |
+| `EASYSHARE_STORAGE_ORPHAN_PRUNE_INTERVAL_HOURS` | `6`                          | How often, in hours, the orphaned-storage sweep runs.                       |
 | `EASYSHARE_CORS_ORIGINS`                 | `http://localhost:5173`              | Comma-separated list of allowed CORS origins.                               |
 | `EASYSHARE_RATE_LIMIT_ENABLED`           | `true`                               | Set to `false` to disable API rate limiting.                                |
 | `EASYSHARE_RATE_LIMIT_STORAGE_URI`       | `memory://`                         | Rate-limit counter store URI. `memory://` (default) is per-process and fine for a single node; use `redis://…` when running multiple workers/replicas (required by `EASYSHARE_DEPLOYMENT_PROFILE=distributed`, needs the `redis` build extra). |
 | `EASYSHARE_FORWARDED_ALLOW_IPS`          | `127.0.0.1`                          | Comma-separated reverse-proxy IPs whose `X-Forwarded-For` uvicorn trusts. Read by the Docker entrypoint, so it must be a real environment variable (e.g. set in Compose), not only in `backend/.env`. Use `*` only when the backend port is not publicly reachable. |
+| `EASYSHARE_HSTS_ENABLED`                 | `true`                               | Adds a `Strict-Transport-Security` header on responses served over HTTPS (detected from the proxy-forwarded scheme), pinning the origin to TLS. Never emitted over plain HTTP, so local dev is unaffected. |
+| `EASYSHARE_HSTS_MAX_AGE`                 | `63072000` (2 years)                 | `max-age` value, in seconds, sent in the HSTS header.                       |
+| `EASYSHARE_HSTS_INCLUDE_SUBDOMAINS`      | `true`                               | Adds `includeSubDomains` to the HSTS header, extending the pin to subdomains. |
+| `EASYSHARE_HSTS_PRELOAD`                 | `false`                              | Adds `preload` to the HSTS header. Only enable once every subdomain is HTTPS-ready and you intend to submit the domain to browser preload lists. |
 | `EASYSHARE_LOG_LEVEL`                    | `INFO`                               | Root log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`).                       |
 | `EASYSHARE_LOG_FORMAT`                   | `console`                            | Log output format: `console` (human-readable) or `json` (structured, for shippers). |
 | `EASYSHARE_SLOW_REQUEST_MS`              | `1000`                               | Requests at or above this many milliseconds are logged at `WARNING` with a `slow` marker (so a shipper can alert on latency) instead of the usual `INFO` access line. Set to `0` to disable. |
 | `EASYSHARE_AUDIT_RETENTION_DAYS`         | `30`                                 | Number of days audit-log events are kept; a background task periodically deletes older events. Set to `0` to keep them indefinitely. |
 | `EASYSHARE_AUDIT_PRUNE_INTERVAL_HOURS`   | `24`                                 | How often, in hours, the audit-log retention task runs (only when `EASYSHARE_AUDIT_RETENTION_DAYS` is greater than `0`). |
+| `EASYSHARE_COUNTER_FLUSH_INTERVAL_SECONDS` | `5`                                | How often, in seconds, a background task flushes in-memory share view/download counters and buffered share-download audit events to the database (coalesces many hot-path updates into one write). `0` disables the flusher. |
 | `EASYSHARE_SMTP_HOST`                    | _(empty)_                            | SMTP server host for outgoing mail. When set, unlocking a **restricted** share requires a one-time code emailed to the recipient (proving they control the address, not merely know it). Left empty (the default), email verification is disabled and restricted shares accept any allow-listed address; the UI warns owners when they enable a restricted share in this mode. |
 | `EASYSHARE_SMTP_PORT`                    | `587`                                | SMTP server port.                                                           |
 | `EASYSHARE_SMTP_USERNAME`               | _(empty)_                            | SMTP username (login). Leave empty for an unauthenticated relay.            |
