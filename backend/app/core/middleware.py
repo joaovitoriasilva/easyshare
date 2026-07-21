@@ -32,14 +32,14 @@ def _build_csp_header() -> tuple[bytes, bytes]:
     """Build the ``Content-Security-Policy`` header value.
 
     The base policy is strict same-origin. When a CSP report URI is configured
-    (``settings.csp_report_uri``) its origin is appended to ``connect-src`` so
+    (``settings.csp_report_uri_frontend``) its origin is appended to ``connect-src`` so
     the GlitchTip/Sentry crash-reporting SDK bundled in the SPA — which sends
     events to the same host — is not blocked, and a ``report-uri`` directive is
     added so the browser posts policy-violation reports to GlitchTip too.
     """
     connect_src = "'self'"
     report_directive = ""
-    report_uri = settings.csp_report_uri.strip()
+    report_uri = settings.csp_report_uri_frontend.strip()
     if report_uri:
         origin = _origin_of(report_uri)
         if origin:

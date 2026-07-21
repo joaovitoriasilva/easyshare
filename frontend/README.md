@@ -47,7 +47,7 @@ runtime cost). When set, the SDK is initialised after the app's own error
 handler and captures component errors (including component name and props).
 
 For the browser to actually reach GlitchTip, the backend must also allow its
-origin in the `Content-Security-Policy`; set `EASYSHARE_CSP_REPORT_URI` on the
+origin in the `Content-Security-Policy`; set `EASYSHARE_CSP_REPORT_URI_FRONTEND` on the
 backend to the matching GlitchTip security-report endpoint (see the root
 `README.md`).
 

@@ -172,7 +172,7 @@ class Settings(BaseSettings):
     # which sends events to the same host — is not blocked by the policy. Pair
     # it with the frontend ``VITE_GLITCHTIP_DSN`` build-time variable, which
     # points at the same GlitchTip instance. Leave empty to disable both.
-    csp_report_uri: str = ""
+    csp_report_uri_frontend: str = ""
 
     # Rate limiting
     rate_limit_enabled: bool = True

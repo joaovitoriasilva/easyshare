@@ -3,7 +3,7 @@ services:
     container_name: easyshare
     # Optional: uncomment `args` to bake the GlitchTip crash-reporting DSN into
     # the SPA at build time (Vite inlines it; it cannot be set at run time).
-    # Pair it with EASYSHARE_CSP_REPORT_URI below.
+    # Pair it with EASYSHARE_CSP_REPORT_URI_FRONTEND below.
     build:
       context: .
       # args:
@@ -36,7 +36,7 @@ services:
       # report-uri and its origin is allowed in connect-src so the bundled SPA
       # crash SDK is not blocked. Must point at the same GlitchTip instance as
       # the frontend VITE_GLITCHTIP_DSN build arg.
-      # EASYSHARE_CSP_REPORT_URI: "https://diagnostics.example.com/api/2/security/?glitchtip_key=your_key"
+      # EASYSHARE_CSP_REPORT_URI_FRONTEND: "https://diagnostics.example.com/api/2/security/?glitchtip_key=your_key"
     volumes:
       - app-data:/data
     ports:

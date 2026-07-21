@@ -134,7 +134,7 @@ lets it forge the client IP and bypass IP-based rate limiting.
 image). Add `Strict-Transport-Security` (HSTS) there once the site is served
 exclusively over HTTPS.
 
-The CSP is strict same-origin by default. Setting `EASYSHARE_CSP_REPORT_URI`
+The CSP is strict same-origin by default. Setting `EASYSHARE_CSP_REPORT_URI_FRONTEND`
 adds a `report-uri` directive and allows that endpoint's origin in
 `connect-src`, so the optional GlitchTip (Sentry-compatible) crash-reporting SDK
 bundled in the SPA can send events without being blocked. Pair it with the
@@ -202,7 +202,7 @@ running with Docker.
 | `EASYSHARE_HSTS_MAX_AGE`                 | `63072000` (2 years)                 | `max-age` value, in seconds, sent in the HSTS header.                       |
 | `EASYSHARE_HSTS_INCLUDE_SUBDOMAINS`      | `true`                               | Adds `includeSubDomains` to the HSTS header, extending the pin to subdomains. |
 | `EASYSHARE_HSTS_PRELOAD`                 | `false`                              | Adds `preload` to the HSTS header. Only enable once every subdomain is HTTPS-ready and you intend to submit the domain to browser preload lists. |
-| `EASYSHARE_CSP_REPORT_URI`               | _(empty)_                            | GlitchTip (Sentry-compatible) security-report endpoint. When set, a `report-uri` directive is added to the `Content-Security-Policy` and the endpoint's origin is allowed in `connect-src` so the SPA's crash-reporting SDK isn't blocked. Pair with the frontend `VITE_GLITCHTIP_DSN` build-time variable pointing at the same instance. Empty (the default) disables it. |
+| `EASYSHARE_CSP_REPORT_URI_FRONTEND`               | _(empty)_                            | GlitchTip (Sentry-compatible) security-report endpoint. When set, a `report-uri` directive is added to the `Content-Security-Policy` and the endpoint's origin is allowed in `connect-src` so the SPA's crash-reporting SDK isn't blocked. Pair with the frontend `VITE_GLITCHTIP_DSN` build-time variable pointing at the same instance. Empty (the default) disables it. |
 | `EASYSHARE_LOG_LEVEL`                    | `INFO`                               | Root log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`).                       |
 | `EASYSHARE_LOG_FORMAT`                   | `console`                            | Log output format: `console` (human-readable) or `json` (structured, for shippers). |
 | `EASYSHARE_SLOW_REQUEST_MS`              | `1000`                               | Requests at or above this many milliseconds are logged at `WARNING` with a `slow` marker (so a shipper can alert on latency) instead of the usual `INFO` access line. Set to `0` to disable. |

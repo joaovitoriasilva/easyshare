@@ -19,7 +19,7 @@ COPY frontend/ ./
 # assets are compiled. Enable it at image build time, e.g.:
 #   docker build --build-arg VITE_GLITCHTIP_DSN="https://<key>@host/<project>" .
 # Left empty (the default) the crash SDK is tree-shaken out of the bundle
-# entirely. Pair it with the backend EASYSHARE_CSP_REPORT_URI env var so the
+# entirely. Pair it with the backend EASYSHARE_CSP_REPORT_URI_FRONTEND env var so the
 # browser is allowed to send events to GlitchTip.
 ARG VITE_GLITCHTIP_DSN=""
 ENV VITE_GLITCHTIP_DSN=$VITE_GLITCHTIP_DSN
