@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from app.core.audit import prune_audit_events
+from app.core.audit import audit_buffer, prune_audit_events
 from app.core.config import settings
 from app.services.chunked import prune_upload_sessions
 from app.services.counters import counter_buffer
@@ -40,15 +40,16 @@ async def audit_retention_loop() -> None:
         await asyncio.sleep(interval)
 
 
-async def counter_flush_loop() -> None:
-    """Periodically flush buffered view/download counters to the database.
+async def hot_buffer_flush_loop() -> None:
+    """Periodically flush the in-memory hot-path buffers to the database.
 
-    Public view/download increments are accumulated in memory (see
-    ``app/services/counters.py``) to avoid a per-hit ``UPDATE`` + commit on a
-    single hot row. This loop drains the buffer every
-    ``counter_flush_interval_seconds`` seconds, offloading the blocking write to
+    Two high-frequency signals are buffered in process memory to keep their
+    per-hit writes off the request's critical path: public view/download
+    counters (see ``app/services/counters.py``) and share-download audit events
+    (see ``app/core/audit.py``). This loop drains both every
+    ``counter_flush_interval_seconds`` seconds, offloading the blocking writes to
     a worker thread so the event loop is never blocked. It is cancelled by the
-    application lifespan on shutdown, which performs one final flush.
+    application lifespan on shutdown, which performs one final flush of each.
     """
     interval = settings.counter_flush_interval_seconds
     while True:
@@ -57,6 +58,10 @@ async def counter_flush_loop() -> None:
             await asyncio.to_thread(counter_buffer.flush)
         except Exception:
             logger.exception("counters.flush_failed")
+        try:
+            await asyncio.to_thread(audit_buffer.flush)
+        except Exception:
+            logger.exception("audit.flush_failed")
 
 
 async def upload_session_prune_loop() -> None:

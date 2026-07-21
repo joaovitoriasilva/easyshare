@@ -74,6 +74,9 @@ def db_sessionmaker(tmp_path: Path) -> Generator[sessionmaker]:
 
     original_audit_sessionmaker = audit_module.audit_sessionmaker
     audit_module.audit_sessionmaker = TestingSessionLocal
+    # Start the audit buffer clean so buffered download events from a previous
+    # test can't leak into this one; its flush uses audit_sessionmaker (above).
+    audit_module.audit_buffer.reset()
     # Point counter flushing at the isolated engine and start from a clean
     # buffer so a previous test's pending deltas can't leak into this one.
     original_counter_sessionmaker = counters_module.counter_sessionmaker
@@ -83,6 +86,7 @@ def db_sessionmaker(tmp_path: Path) -> Generator[sessionmaker]:
     yield TestingSessionLocal
     app.dependency_overrides.clear()
     audit_module.audit_sessionmaker = original_audit_sessionmaker
+    audit_module.audit_buffer.reset()
     counters_module.counter_sessionmaker = original_counter_sessionmaker
     counters_module.counter_buffer.reset()
     chunked_module.prune_sessionmaker = original_prune_sessionmaker

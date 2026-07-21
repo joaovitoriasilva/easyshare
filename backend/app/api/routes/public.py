@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import DbSession
-from app.core.audit import record_event
+from app.core.audit import enqueue_event, record_event
 from app.core.config import settings
 from app.core.rate_limit import DOWNLOAD, EXPENSIVE, SENSITIVE, limiter
 from app.core.security import (
@@ -423,7 +423,6 @@ def download_shared_file(
     file_id: int,
     db: DbSession,
     request: Request,
-    background_tasks: BackgroundTasks,
     access: str | None = Query(default=None),
 ) -> Response:
     """Download a single file from a share."""
@@ -439,12 +438,11 @@ def download_shared_file(
     # Buffer the download count in memory (flushed in coalesced batches) instead
     # of an UPDATE + commit on the file row per hit.
     counter_buffer.add_downloads([record.id])
-    # Persist the audit row off the request's critical path: a viral link would
-    # otherwise pay an INSERT + commit per download before the file even begins
-    # streaming. The task runs after the response is sent, while the request-id
-    # contextvar is still bound, so log correlation is preserved.
-    background_tasks.add_task(
-        record_event,
+    # Audit the download attempt now — before the file streams — but hand the row
+    # to the in-memory audit buffer so a viral link never pays an INSERT + commit
+    # on the request's critical path. The attempt's timestamp, actor and request
+    # id are captured here; the row is persisted in a coalesced batch.
+    enqueue_event(
         "share.download",
         request=request,
         actor=email,
@@ -463,7 +461,6 @@ def download_shared_archive(
     token: str,
     db: DbSession,
     request: Request,
-    background_tasks: BackgroundTasks,
     access: str | None = Query(default=None),
     file_ids: list[int] | None = Query(default=None),
 ) -> StreamingResponse:
@@ -496,10 +493,10 @@ def download_shared_archive(
         package_name=share.package.name,
         on_complete=lambda: counter_buffer.add_downloads(selected_ids),
     )
-    # Deferred like the single-file path so the audit INSERT + commit never sits
-    # on the request's critical path; it runs once the archive has streamed.
-    background_tasks.add_task(
-        record_event,
+    # Audit the attempt now (before streaming) via the non-blocking audit buffer.
+    # The counter above still only counts a completed archive; auditing the
+    # attempt records who requested it even if the client disconnects mid-stream.
+    enqueue_event(
         "share.download",
         request=request,
         actor=email,

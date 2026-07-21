@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 
 import pytest
+from app.core.audit import audit_buffer
 from fastapi.testclient import TestClient
 
 from tests.conftest import register_and_login
@@ -33,6 +34,9 @@ def _share_with_download(
         f"/api/s/{token}/files/{file_id}/download",
         params={"access": unlocked["download_token"]},
     )
+    # The download is audited via the non-blocking buffer; flush it so the
+    # share.download row is queryable through the audit API below.
+    audit_buffer.flush()
     return pkg_id
 
 

@@ -6,7 +6,7 @@ import io
 import json
 from datetime import UTC, datetime, timedelta
 
-from app.core.audit import prune_audit_events
+from app.core.audit import audit_buffer, prune_audit_events
 from app.models.models import AuditEvent
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -114,6 +114,9 @@ def test_share_enable_access_and_download_are_audited(
         ).status_code
         == 200
     )
+    # The download is audited via the non-blocking buffer; flush it so the row is
+    # persisted before we assert on the audit_log table.
+    audit_buffer.flush()
 
     actions = set(_actions(db_sessionmaker))
     assert {"share.enable", "share.access.granted", "share.download"} <= actions
@@ -121,6 +124,39 @@ def test_share_enable_access_and_download_are_audited(
     download = _events(db_sessionmaker, "share.download")[0]
     assert download.actor == "ok@example.com"
     assert download.target == f"share:{token[:8]}"
+
+
+def test_share_download_is_buffered_then_flushed(
+    client: TestClient, db_sessionmaker: sessionmaker
+) -> None:
+    """A download audits the attempt via the buffer, not an inline insert.
+
+    The event is captured at request time (so the attempt is recorded even if the
+    client disconnects mid-stream), but the row is only persisted when the
+    background flusher — or shutdown — drains the buffer.
+    """
+    headers = register_and_login(client)
+    token, file_id = _restricted_share(client, headers)
+    access = client.post(
+        f"/api/s/{token}/access", json={"email": "ok@example.com"}
+    ).json()["download_token"]
+    assert (
+        client.get(
+            f"/api/s/{token}/files/{file_id}/download", params={"access": access}
+        ).status_code
+        == 200
+    )
+
+    # Captured but not yet in the table (the flush loop is disabled in tests).
+    assert _events(db_sessionmaker, "share.download") == []
+
+    audit_buffer.flush()
+
+    downloads = _events(db_sessionmaker, "share.download")
+    assert len(downloads) == 1
+    assert downloads[0].actor == "ok@example.com"
+    # The request id is captured at enqueue time, in the request's context.
+    assert downloads[0].request_id
 
 
 def test_prune_audit_events_removes_old_events(

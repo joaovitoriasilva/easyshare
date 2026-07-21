@@ -13,9 +13,11 @@ from app.api.deps import (
     OwnedFile,
     OwnedPackage,
 )
+from app.core.audit import audit_buffer
 from app.core.config import settings
 from app.core.rate_limit import EXPENSIVE, limiter
 from app.core.security import create_download_token
+from app.core.utils import as_utc
 from app.db.pagination import paginate
 from app.models.models import AuditEvent, Package, PackageFile
 from app.schemas.schemas import (
@@ -148,6 +150,18 @@ def get_package_stats(package: OwnedPackage, db: DbSession) -> PackageStats:
             AuditEvent.action == "share.download",
         )
     ).one()
+    # Fold in downloads still buffered in memory (audited at request time but not
+    # yet flushed) so the owner sees near-real-time totals, mirroring the view
+    # and per-file deltas below. ``last_downloaded_at`` from SQLite may be naive,
+    # so normalise both sides to UTC before taking the later of the two.
+    pending_downloads, pending_last = audit_buffer.pending_download_stats(package.id)
+    downloads_count = (downloads_count or 0) + pending_downloads
+    if pending_last is not None:
+        last_downloaded_at = (
+            pending_last
+            if last_downloaded_at is None
+            else max(as_utc(last_downloaded_at), pending_last)
+        )
     views = package.share.view_count if package.share is not None else 0
     if package.share is not None:
         views += counter_buffer.pending_view(package.share.id)
@@ -170,7 +184,7 @@ def get_package_stats(package: OwnedPackage, db: DbSession) -> PackageStats:
     }
     return PackageStats(
         views=views,
-        downloads=downloads_count or 0,
+        downloads=downloads_count,
         file_downloads=file_downloads,
         last_downloaded_at=last_downloaded_at,
     )

@@ -177,14 +177,17 @@ class Settings(BaseSettings):
     audit_retention_days: int = Field(default=30, ge=0)
     audit_prune_interval_hours: int = Field(default=24, ge=1)
 
-    # Hot-counter aggregation. Public share view/download counters are
-    # accumulated in process memory and flushed to the database every this many
-    # seconds, coalescing many per-hit ``UPDATE``s on a single share/file row
-    # into one and keeping a viral link from serialising thousands of
-    # transactions on that row. A crash can lose an unflushed, time-bounded
-    # delta, which is acceptable for approximate analytics (the same trade-off
-    # as the instance-total quota cache). Set to 0 to disable the background
-    # flusher (used by the test suite, which reads the buffered delta directly).
+    # Hot-path buffer flushing. Two high-frequency signals are accumulated in
+    # process memory and flushed to the database every this many seconds: public
+    # share view/download counters (coalescing many per-hit ``UPDATE``s on a
+    # single share/file row into one) and buffered share-download audit events
+    # (keeping the per-download ``INSERT`` + commit off the request's critical
+    # path). A crash can lose an unflushed, time-bounded delta, which is
+    # acceptable for approximate analytics and forensic download rows — the
+    # stdout audit line is still emitted synchronously at request time (the same
+    # trade-off as the instance-total quota cache). Set to 0 to disable the
+    # background flusher (used by the test suite, which surfaces or drains the
+    # buffers explicitly).
     counter_flush_interval_seconds: int = Field(default=5, ge=0)
 
     @field_validator("cors_origins", mode="before")

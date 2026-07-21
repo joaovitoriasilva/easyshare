@@ -26,6 +26,7 @@ from app.api.routes import (
     shares,
     uploads,
 )
+from app.core.audit import audit_buffer
 from app.core.config import settings
 from app.core.logging import configure_logging, get_request_id
 from app.core.middleware import (
@@ -41,7 +42,7 @@ from app.core.rate_limit import (
 from app.core.static import router as frontend_router
 from app.core.tasks import (
     audit_retention_loop,
-    counter_flush_loop,
+    hot_buffer_flush_loop,
     upload_session_prune_loop,
 )
 from app.services.counters import counter_buffer
@@ -55,16 +56,17 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Start and cleanly stop background maintenance tasks.
 
     The audit-retention loop is only started when a positive
-    ``audit_retention_days`` is configured; the counter-flush loop only when a
+    ``audit_retention_days`` is configured; the hot-buffer flush loop only when a
     positive ``counter_flush_interval_seconds`` is configured. On shutdown every
-    started task is cancelled and a final counter flush persists any increments
+    started task is cancelled and a final flush of both hot-path buffers (view/
+    download counters and buffered download-audit events) persists anything
     buffered since the last flush.
     """
     tasks: list[asyncio.Task[None]] = []
     if settings.audit_retention_days > 0:
         tasks.append(asyncio.create_task(audit_retention_loop()))
     if settings.counter_flush_interval_seconds > 0:
-        tasks.append(asyncio.create_task(counter_flush_loop()))
+        tasks.append(asyncio.create_task(hot_buffer_flush_loop()))
     tasks.append(asyncio.create_task(upload_session_prune_loop()))
     try:
         yield
@@ -74,10 +76,12 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         for task in tasks:
             with suppress(asyncio.CancelledError):
                 await task
-        # Persist any counts buffered since the last flush; best-effort so a
+        # Persist anything buffered since the last flush; best-effort so a
         # storage error can never block a clean shutdown.
         with suppress(Exception):
             await asyncio.to_thread(counter_buffer.flush)
+        with suppress(Exception):
+            await asyncio.to_thread(audit_buffer.flush)
 
 
 app = FastAPI(
