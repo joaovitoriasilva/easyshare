@@ -165,6 +165,15 @@ class Settings(BaseSettings):
     hsts_include_subdomains: bool = True
     hsts_preload: bool = False
 
+    # Crash reporting (Content-Security-Policy). When set, the browser is told
+    # (via the ``Content-Security-Policy`` header) to POST policy-violation
+    # reports to this URI, and the URI's origin is added to ``connect-src`` so
+    # the GlitchTip (Sentry-compatible) crash-reporting SDK bundled in the SPA —
+    # which sends events to the same host — is not blocked by the policy. Pair
+    # it with the frontend ``VITE_GLITCHTIP_DSN`` build-time variable, which
+    # points at the same GlitchTip instance. Leave empty to disable both.
+    csp_report_uri: str = ""
+
     # Rate limiting
     rate_limit_enabled: bool = True
     rate_limit_storage_uri: str = "memory://"

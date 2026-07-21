@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from starlette.datastructures import Headers
@@ -19,16 +20,46 @@ logger = logging.getLogger("easyshare.access")
 # value.
 _QUIET_PATHS = frozenset({"/api/health", "/api/ready"})
 
+def _origin_of(url: str) -> str:
+    """Return the ``scheme://host[:port]`` origin of ``url`` (``""`` if invalid)."""
+    parts = urlsplit(url)
+    if not parts.scheme or not parts.netloc:
+        return ""
+    return f"{parts.scheme}://{parts.netloc}"
+
+
+def _build_csp_header() -> tuple[bytes, bytes]:
+    """Build the ``Content-Security-Policy`` header value.
+
+    The base policy is strict same-origin. When a CSP report URI is configured
+    (``settings.csp_report_uri``) its origin is appended to ``connect-src`` so
+    the GlitchTip/Sentry crash-reporting SDK bundled in the SPA — which sends
+    events to the same host — is not blocked, and a ``report-uri`` directive is
+    added so the browser posts policy-violation reports to GlitchTip too.
+    """
+    connect_src = "'self'"
+    report_directive = ""
+    report_uri = settings.csp_report_uri.strip()
+    if report_uri:
+        origin = _origin_of(report_uri)
+        if origin:
+            connect_src = f"'self' {origin}"
+        report_directive = f"; report-uri {report_uri}"
+    value = (
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; font-src 'self'; "
+        f"connect-src {connect_src}; "
+        "object-src 'none'; base-uri 'self'; form-action 'self'; "
+        f"frame-ancestors 'none'{report_directive}"
+    )
+    return (b"content-security-policy", value.encode("latin-1"))
+
+
 _SECURITY_HEADERS: list[tuple[bytes, bytes]] = [
     (b"x-content-type-options", b"nosniff"),
     (b"x-frame-options", b"DENY"),
     (b"referrer-policy", b"no-referrer"),
-    (
-        b"content-security-policy",
-        b"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-        b"img-src 'self' data:; font-src 'self'; connect-src 'self'; "
-        b"object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
-    ),
+    _build_csp_header(),
 ]
 
 

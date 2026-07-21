@@ -1,7 +1,13 @@
 services:
   easyshare:
     container_name: easyshare
-    build: .
+    # Optional: uncomment `args` to bake the GlitchTip crash-reporting DSN into
+    # the SPA at build time (Vite inlines it; it cannot be set at run time).
+    # Pair it with EASYSHARE_CSP_REPORT_URI below.
+    build:
+      context: .
+      # args:
+      #   VITE_GLITCHTIP_DSN: "https://<key>@diagnostics.example.com/<project>"
     environment:
       # Run in production mode so the startup guard enforces a strong secret,
       # failing fast on insecure configuration.
@@ -25,6 +31,12 @@ services:
       # {package_id}/{file_id}_{filename} paths (false). The original filename is
       # always kept in the database regardless.
       # EASYSHARE_OBFUSCATE_STORAGE_NAMES: "true"
+      # Optional GlitchTip (Sentry-compatible) crash reporting. When set, this
+      # CSP report endpoint is added to the Content-Security-Policy as a
+      # report-uri and its origin is allowed in connect-src so the bundled SPA
+      # crash SDK is not blocked. Must point at the same GlitchTip instance as
+      # the frontend VITE_GLITCHTIP_DSN build arg.
+      # EASYSHARE_CSP_REPORT_URI: "https://diagnostics.example.com/api/2/security/?glitchtip_key=your_key"
     volumes:
       - app-data:/data
     ports:

@@ -13,6 +13,16 @@ WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
+# Optional GlitchTip (Sentry-compatible) crash-reporting DSN. Vite inlines this
+# into the SPA bundle at build time, so it must be supplied to THIS build stage
+# — it is not a runtime setting and the entrypoint cannot change it once the
+# assets are compiled. Enable it at image build time, e.g.:
+#   docker build --build-arg VITE_GLITCHTIP_DSN="https://<key>@host/<project>" .
+# Left empty (the default) the crash SDK is tree-shaken out of the bundle
+# entirely. Pair it with the backend EASYSHARE_CSP_REPORT_URI env var so the
+# browser is allowed to send events to GlitchTip.
+ARG VITE_GLITCHTIP_DSN=""
+ENV VITE_GLITCHTIP_DSN=$VITE_GLITCHTIP_DSN
 RUN npm run build
 
 # Stage 2: resolve production dependencies from the lock into a hash-pinned

@@ -1,5 +1,6 @@
 import { createApp } from "vue";
 import { createPinia } from "pinia";
+import * as Sentry from "@sentry/vue";
 import App from "./App.vue";
 import router from "./router";
 import { getToken, setUnauthorizedHandler, setRateLimitedHandler } from "./api/client";
@@ -15,6 +16,27 @@ app.config.errorHandler = (error, _instance, info) => {
   console.error(error, info);
   useToasts().error("Something went wrong. Please try again.");
 };
+
+// Crash reporting via GlitchTip (Sentry-compatible). Only enabled when a DSN is
+// provided at build time, so local/dev builds without the env var never phone
+// home. Initialised after the app's own errorHandler above so the Sentry Vue
+// integration chains to it (both the toast and the crash capture run) instead
+// of replacing it.
+const glitchtipDsn = import.meta.env.VITE_GLITCHTIP_DSN;
+if (glitchtipDsn) {
+  Sentry.init({
+    app,
+    dsn: glitchtipDsn,
+    // Sample only a small fraction of performance transactions to limit the
+    // data sent to (and stored by) GlitchTip; adjust to your needs.
+    tracesSampleRate: 0.01,
+    // GlitchTip does not support Sentry release-health "sessions", so drop the
+    // default browser-session integration. This replaces the `autoSessionTracking:
+    // false` option that older Sentry SDK versions exposed.
+    integrations: (defaults) =>
+      defaults.filter((integration) => integration.name !== "BrowserSession"),
+  });
+}
 
 app.use(createPinia());
 app.use(router);

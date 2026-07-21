@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import io
 
-from app.core.middleware import MaxBodySizeMiddleware, SecurityHeadersMiddleware
+import pytest
+from app.core.config import settings
+from app.core.middleware import (
+    MaxBodySizeMiddleware,
+    SecurityHeadersMiddleware,
+    _build_csp_header,
+)
 from fastapi import FastAPI, File, UploadFile
 from fastapi.testclient import TestClient
 
@@ -88,6 +94,30 @@ def test_hsts_present_over_https() -> None:
     assert hsts is not None
     assert "max-age=" in hsts
     assert "includeSubDomains" in hsts
+
+
+def test_csp_defaults_to_self_without_report_uri(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no report URI configured the CSP stays strict same-origin."""
+    monkeypatch.setattr(settings, "csp_report_uri", "")
+    name, raw = _build_csp_header()
+    value = raw.decode("latin-1")
+    assert name == b"content-security-policy"
+    assert "connect-src 'self';" in value
+    assert "report-uri" not in value
+
+
+def test_csp_allows_report_origin_and_adds_report_uri(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A configured report URI is allowed in connect-src and set as report-uri."""
+    report_uri = "https://diagnostics.example.com/api/2/security/?glitchtip_key=abc"
+    monkeypatch.setattr(settings, "csp_report_uri", report_uri)
+    value = _build_csp_header()[1].decode("latin-1")
+    # Only the origin (scheme://host) is added to connect-src, not the full path.
+    assert "connect-src 'self' https://diagnostics.example.com;" in value
+    assert f"report-uri {report_uri}" in value
 
 
 def test_hsts_absent_over_http() -> None:

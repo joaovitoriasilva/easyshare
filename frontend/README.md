@@ -22,6 +22,35 @@ npm run dev        # starts Vite on http://localhost:5173
 
 The dev server proxies `/api` to the backend on `http://localhost:8000`.
 
+## Crash reporting (optional)
+
+Crash reporting via [GlitchTip](https://glitchtip.com/) (Sentry-compatible) is
+wired up in `src/main.ts` but only activates when a DSN is provided at build
+time through the `VITE_GLITCHTIP_DSN` environment variable:
+
+```bash
+VITE_GLITCHTIP_DSN="https://<key>@your-glitchtip-host/<project>" npm run build
+```
+
+When building the single Docker image, pass it as a build argument instead — the
+`Dockerfile` forwards it to the frontend build stage. It is a build-time value,
+so it cannot be supplied at container run time (the entrypoint runs after the
+SPA is already compiled):
+
+```bash
+docker build --build-arg VITE_GLITCHTIP_DSN="https://<key>@your-glitchtip-host/<project>" .
+```
+
+Vite inlines `import.meta.env.VITE_GLITCHTIP_DSN` at build time, so when it is
+unset the `@sentry/vue` SDK is tree-shaken out of the bundle entirely (zero
+runtime cost). When set, the SDK is initialised after the app's own error
+handler and captures component errors (including component name and props).
+
+For the browser to actually reach GlitchTip, the backend must also allow its
+origin in the `Content-Security-Policy`; set `EASYSHARE_CSP_REPORT_URI` on the
+backend to the matching GlitchTip security-report endpoint (see the root
+`README.md`).
+
 ## Quality gates
 
 ```bash
