@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch, type ComponentPublicInstance } from "vue";
 import { RouterLink, useRouter } from "vue-router";
-import { FileArchive, Plus, Search, Share2, Upload } from "@lucide/vue";
+import { FileArchive, FolderUp, Plus, Search, Share2, Upload } from "@lucide/vue";
 import { authApi, packagesApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { PackageListItem, StorageUsage } from "@/api/types";
@@ -134,6 +134,19 @@ async function create(): Promise<void> {
 // going as we navigate into the new package.
 const dragging = ref(false);
 const dropInput = ref<HTMLInputElement | null>(null);
+const folderInput = ref<HTMLInputElement | null>(null);
+
+// `webkitdirectory` / `directory` are not standard, typed input attributes, so
+// set them imperatively on the element via a function ref (which also captures
+// the ref used to open the folder picker).
+function setFolderInput(el: Element | ComponentPublicInstance | null): void {
+  const input = el instanceof HTMLInputElement ? el : null;
+  folderInput.value = input;
+  if (input) {
+    input.setAttribute("webkitdirectory", "");
+    input.setAttribute("directory", "");
+  }
+}
 
 /** Name a dropped batch after its top-level folder, else a dated fallback. */
 function defaultPackageName(files: File[]): string {
@@ -204,32 +217,50 @@ onMounted(() => {
       class="hidden"
       @change="onPickCreate"
     />
+    <!-- webkitdirectory is set imperatively (not a standard typed attribute) so
+         a whole folder can be picked to create a package from it. -->
+    <input
+      :ref="setFolderInput"
+      type="file"
+      multiple
+      class="hidden"
+      @change="onPickCreate"
+    />
     <div
-      role="button"
-      tabindex="0"
-      aria-label="Create a package from files"
-      class="flex flex-col items-center justify-center rounded-md border border-dashed px-4 py-6 text-center transition-colors"
+      class="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed px-4 py-6 text-center transition-colors"
       :class="[
         dragging ? 'border-primary bg-primary/5' : 'border-input',
-        creating ? 'pointer-events-none opacity-60' : 'cursor-pointer hover:border-primary',
+        creating ? 'pointer-events-none opacity-60' : '',
       ]"
-      @click="dropInput?.click()"
-      @keydown.enter.prevent="dropInput?.click()"
-      @keydown.space.prevent="dropInput?.click()"
       @dragover.prevent="dragging = true"
       @dragenter.prevent="dragging = true"
       @dragleave.prevent="dragging = false"
       @drop.prevent="onDropCreate"
     >
-      <div class="pointer-events-none flex flex-col items-center gap-1">
-        <Upload class="h-6 w-6 text-muted-foreground" />
-        <p class="text-sm">
-          <span class="font-medium text-primary">Drop files here</span>
-          to create a package
-        </p>
+      <Upload class="h-6 w-6 text-muted-foreground" />
+      <div>
+        <p class="text-sm">Drag and drop files or a folder to create a package</p>
         <p class="text-xs text-muted-foreground">
           A new package is created and your files start uploading right away.
         </p>
+      </div>
+      <div class="flex flex-wrap items-center justify-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="creating"
+          @click="dropInput?.click()"
+        >
+          <Upload class="h-4 w-4" /> Choose files
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="creating"
+          @click="folderInput?.click()"
+        >
+          <FolderUp class="h-4 w-4" /> Choose folder
+        </Button>
       </div>
     </div>
 
