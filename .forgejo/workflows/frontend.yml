@@ -11,9 +11,6 @@ on:
       - "frontend/**"
       - ".forgejo/workflows/frontend.yml"
 
-permissions:
-  contents: read
-
 concurrency:
   group: ${{ forgejo.workflow }}-${{ forgejo.ref }}
   cancel-in-progress: true
