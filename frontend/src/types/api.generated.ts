@@ -90,7 +90,11 @@ export interface paths {
          * @description Delete a user and all of their packages, files and shares.
          *
          *     Administrators cannot delete their own account, so an instance always
-         *     keeps at least one administrator.
+         *     keeps at least one administrator. The database rows are removed
+         *     synchronously; the user's stored blobs — potentially many, each a network
+         *     round-trip on object storage — are reclaimed in a background task (with the
+         *     orphaned-blob sweep as backstop) so the request never blocks on a long chain
+         *     of storage deletes.
          */
         delete: operations["delete_user_api_admin_users__user_id__delete"];
         options?: never;
@@ -364,6 +368,12 @@ export interface paths {
         /**
          * Delete Package
          * @description Delete a package and all of its stored files.
+         *
+         *     The database rows (the authoritative record) are deleted synchronously, but
+         *     the stored blobs — each a network round-trip on object storage — are
+         *     reclaimed in a background task so the request never blocks on a long chain of
+         *     storage deletes. The orphaned-blob sweep is the backstop if a background
+         *     delete is interrupted.
          */
         delete: operations["delete_package_api_packages__package_id__delete"];
         options?: never;
@@ -441,7 +451,10 @@ export interface paths {
          * @description Delete files from a package, keeping the package itself.
          *
          *     Owners may pass ``file_ids`` repeatedly to delete a specific subset;
-         *     omitting it deletes every file in the package.
+         *     omitting it deletes every file in the package. The rows are removed
+         *     synchronously; the stored blobs are reclaimed in a background task (with the
+         *     orphaned-blob sweep as backstop) so deleting many files never blocks the
+         *     request on a long chain of storage round-trips.
          */
         delete: operations["delete_all_files_api_packages__package_id__files_delete"];
         options?: never;
