@@ -185,7 +185,7 @@ function logout(): void {
           EasyShare
         </span>
         <span class="flex items-center">
-          {{ yearRange }} • v0.5.1 •
+          {{ yearRange }} • v0.6.0 •
           <a
             href="https://codeberg.org/joaovitoriasilva/easyshare"
             target="_blank"
