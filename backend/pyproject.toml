@@ -18,6 +18,9 @@ dependencies = [
     "email-validator>=2.1,<3.0",
     "safeuploads[fastapi]>=1.0,<2.0",
     "slowapi>=0.1.9,<1.0",
+    # Optional server-side crash reporting (GlitchTip, Sentry-compatible);
+    # dormant unless EASYSHARE_GLITCHTIP_DSN_BACKEND is set.
+    "sentry-sdk>=2.0,<3.0",
 ]
 
 # Optional runtime extras, installed only for deployments that need them:

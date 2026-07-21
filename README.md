@@ -142,6 +142,12 @@ frontend's build-time `VITE_GLITCHTIP_DSN` (see `frontend/README.md`), which
 points at the same GlitchTip instance; leave both unset to disable crash
 reporting entirely.
 
+The backend reports its own **server-side** exceptions to GlitchTip
+independently, via `EASYSHARE_GLITCHTIP_DSN_BACKEND` (typically a separate
+GlitchTip project from the frontend). Because the Python SDK sends events
+server-to-server, it needs no CSP allowance — so backend crash reporting is a
+single DSN env var with no matching `report-uri`.
+
 ### Administrators
 
 The **first account to register becomes an administrator**. Admins get a
@@ -203,6 +209,7 @@ running with Docker.
 | `EASYSHARE_HSTS_INCLUDE_SUBDOMAINS`      | `true`                               | Adds `includeSubDomains` to the HSTS header, extending the pin to subdomains. |
 | `EASYSHARE_HSTS_PRELOAD`                 | `false`                              | Adds `preload` to the HSTS header. Only enable once every subdomain is HTTPS-ready and you intend to submit the domain to browser preload lists. |
 | `EASYSHARE_CSP_REPORT_URI_FRONTEND`               | _(empty)_                            | GlitchTip (Sentry-compatible) security-report endpoint. When set, a `report-uri` directive is added to the `Content-Security-Policy` and the endpoint's origin is allowed in `connect-src` so the SPA's crash-reporting SDK isn't blocked. Pair with the frontend `VITE_GLITCHTIP_DSN` build-time variable pointing at the same instance. Empty (the default) disables it. |
+| `EASYSHARE_GLITCHTIP_DSN_BACKEND`                 | _(empty)_                            | GlitchTip (Sentry-compatible) DSN for **server-side** crash reporting. When set, the backend initialises the Sentry Python SDK and reports unhandled exceptions to it. Sent server-to-server, so unlike the frontend SDK it needs no CSP change. Typically a separate GlitchTip project from `VITE_GLITCHTIP_DSN`. Empty (the default) disables it; the SDK is then never imported. |
 | `EASYSHARE_LOG_LEVEL`                    | `INFO`                               | Root log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`).                       |
 | `EASYSHARE_LOG_FORMAT`                   | `console`                            | Log output format: `console` (human-readable) or `json` (structured, for shippers). |
 | `EASYSHARE_SLOW_REQUEST_MS`              | `1000`                               | Requests at or above this many milliseconds are logged at `WARNING` with a `slow` marker (so a shipper can alert on latency) instead of the usual `INFO` access line. Set to `0` to disable. |

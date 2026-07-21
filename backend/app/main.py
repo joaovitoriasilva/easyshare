@@ -39,6 +39,7 @@ from app.core.rate_limit import (
     rate_limit_exceeded_handler,
     rate_limit_store_healthy,
 )
+from app.core.sentry import init_sentry
 from app.core.static import router as frontend_router
 from app.core.tasks import (
     audit_retention_loop,
@@ -50,6 +51,9 @@ from app.services.counters import counter_buffer
 from app.services.storage import storage
 
 configure_logging()
+# Initialise crash reporting before the app is built so the SDK's FastAPI/
+# Starlette integrations patch cleanly; a no-op unless a DSN is configured.
+init_sentry()
 
 
 @asynccontextmanager

@@ -174,6 +174,14 @@ class Settings(BaseSettings):
     # points at the same GlitchTip instance. Leave empty to disable both.
     csp_report_uri_frontend: str = ""
 
+    # Server-side crash reporting. When set, the backend initialises the Sentry
+    # SDK (GlitchTip is Sentry-compatible) and reports unhandled exceptions to
+    # this DSN. Unlike the frontend browser SDK above, the Python SDK sends
+    # events server-to-server, so it needs no Content-Security-Policy allowance.
+    # Leave empty (the default) to disable it entirely — the SDK is then never
+    # even imported. This is a separate GlitchTip project from the frontend DSN.
+    glitchtip_dsn_backend: str = ""
+
     # Rate limiting
     rate_limit_enabled: bool = True
     rate_limit_storage_uri: str = "memory://"

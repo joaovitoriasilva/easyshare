@@ -37,6 +37,12 @@ services:
       # crash SDK is not blocked. Must point at the same GlitchTip instance as
       # the frontend VITE_GLITCHTIP_DSN build arg.
       # EASYSHARE_CSP_REPORT_URI_FRONTEND: "https://diagnostics.example.com/api/2/security/?glitchtip_key=your_key"
+      # Optional server-side crash reporting. When set, the backend initialises
+      # the Sentry Python SDK (GlitchTip is Sentry-compatible) and reports
+      # unhandled exceptions to this DSN. Sent server-to-server, so no CSP
+      # change is needed. Usually a separate GlitchTip project from the
+      # frontend VITE_GLITCHTIP_DSN.
+      # EASYSHARE_GLITCHTIP_DSN_BACKEND: "https://your_key@diagnostics.example.com/3"
     volumes:
       - app-data:/data
     ports:
