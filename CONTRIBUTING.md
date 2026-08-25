@@ -48,14 +48,13 @@ PRs that are too large to review efficiently will be asked to be split before th
 
 ### Translations
 
-- Endurain uses [Codeberg Translate](https://translate.codeberg.org/projects/endurain/) for i18n
-- Please contribute translations there rather than via PRs to the repo
+- Translations can be contributed via a pull request on GitHub
 
 ### New Features
 
 - **Always discuss in an issue first** — this is required, not optional
 - Features that haven't been discussed and approved in an issue may be closed without review, regardless of quality
-- Check the [ROADMAP.md](https://codeberg.org/endurain-project/endurain/src/branch/master/ROADMAP.md) before proposing something that may already be planned
+- Check open [issues](https://github.com/joaovitoriasilva/easyshare/issues) before proposing something that may already be planned
 
 ### Refactors and Code Quality
 
@@ -66,10 +65,10 @@ PRs that are too large to review efficiently will be asked to be split before th
 
 ## Getting Started
  
-1. **Fork the repository** on Codeberg
+1. **Fork the repository** on GitHub
 2. **Clone your fork** locally:
    ```bash
-   git clone https://codeberg.org/YOUR_USERNAME/endurain.git
+   git clone https://github.com/YOUR_USERNAME/easyshare.git
    ```
 3. **Create a branch** and use a descriptive name:
    ```bash
@@ -81,7 +80,7 @@ PRs that are too large to review efficiently will be asked to be split before th
 
    **Format:** `<type>(<scope>)!: <description>` - `(<scope>)` and the breaking-change `!` are optional.
 
-   The following rules are enforced automatically on every PR (against the PR title and every commit subject) by the *Conventional Commits* workflow in `.forgejo/workflows/conventional-commits.yml`:
+   The following rules are enforced automatically on every PR (against the PR title and every commit subject) by the *Conventional Commits* workflow in `.github/workflows/conventional-commits.yml`:
 
    - **Allowed types:** `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`.
    - **Description** must start with a lowercase letter and must not end with a period.

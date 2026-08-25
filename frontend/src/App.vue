@@ -187,13 +187,13 @@ function logout(): void {
         <span class="flex items-center">
           {{ yearRange }} • v0.6.0 •
           <a
-            href="https://codeberg.org/joaovitoriasilva/easyshare"
+            href="https://github.com/joaovitoriasilva/easyshare"
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="EasyShare source code on Codeberg"
+            aria-label="EasyShare source code on GitHub"
             class="text-muted-foreground hover:text-foreground ms-1"
           >
-            Codeberg
+            GitHub
           </a>
         </span>
       </div>

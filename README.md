@@ -1,6 +1,3 @@
-> [!NOTE]
-> **GitHub Mirror** - If you are viewing this on GitHub, please be aware that this repository is a read-only mirror. Issues, pull requests, and all project activity are tracked on Codeberg: [https://codeberg.org/joaovitoriasilva/easyshare](https://codeberg.org/joaovitoriasilva/easyshare)
-
 # EasyShare
 
 EasyShare is a secure file & package sharing application. Authenticated users
@@ -17,7 +14,7 @@ link and download all files, or just the ones they select, as a zip archive.
 | Backend   | Python, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic               |
 | Auth      | JWT access tokens, Argon2id password hashing                      |
 | Tests     | pytest (backend), Vitest (frontend)                               |
-| CI        | Forgejo Actions (lint, type-check, tests, build, dependency audit) |
+| CI        | GitHub Actions (lint, type-check, tests, build, dependency audit) |
 
 ## Features
 
@@ -61,7 +58,7 @@ link and download all files, or just the ones they select, as a zip archive.
 ```
 backend/    FastAPI application, models, migrations and tests
 frontend/   Vue 3 single-page application and tests
-.forgejo/   CI workflows
+.github/    CI workflows
 Dockerfile  Single image: builds the frontend, bundles it into the backend
 docker-compose.yml
 ```
