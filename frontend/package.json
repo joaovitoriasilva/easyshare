@@ -14,7 +14,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@lucide/vue": "^1.25.0",
+    "@lucide/vue": "^1.33.0",
     "@sentry/vue": "^10.67.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
