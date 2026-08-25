@@ -14,34 +14,34 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@lucide/vue": "^1.25.0",
-    "@sentry/vue": "^10.67.0",
+    "@lucide/vue": "^1.34.0",
+    "@sentry/vue": "^10.71.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "pinia": "^4.0.3",
     "qrcode.vue": "^3.10.0",
-    "reka-ui": "^2.10.1",
+    "reka-ui": "^2.10.4",
     "tailwind-merge": "^3.6.0",
     "vue": "^3.5.41",
     "@vue/devtools-api": "^8.2.1",
     "vue-router": "^5.2.0"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.3.2",
+    "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/vue": "^8.1.0",
-    "@types/node": "^26.1.1",
-    "@vitejs/plugin-vue": "^6.0.7",
+    "@types/node": "^26.3.0",
+    "@vitejs/plugin-vue": "^6.0.8",
     "@vue/eslint-config-typescript": "^14.9.0",
     "@vue/test-utils": "^2.4.11",
-    "eslint": "^10.7.0",
-    "eslint-plugin-vue": "^10.9.2",
+    "eslint": "^10.9.1",
+    "eslint-plugin-vue": "^10.10.0",
     "jsdom": "^30.0.1",
-    "postcss": "^8.5.19",
-    "tailwindcss": "^4.3.2",
+    "postcss": "^8.5.26",
+    "tailwindcss": "^4.3.3",
     "typescript": "~6.0.0",
-    "vite": "^8.1.4",
-    "vitest": "^4.1.10",
-    "vue-tsc": "^3.3.7"
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11",
+    "vue-tsc": "^3.3.11"
   },
   "engines": {
     "node": ">=22"
