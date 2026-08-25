@@ -57,8 +57,12 @@ dev = [
 ]
 
 [tool.uv]
-# Pin the resolver version so every developer/CI run produces the same lock.
-required-version = "0.12.5"
+# Constrain the resolver to a 0.12.x release so every developer/CI run
+# produces a compatible lock. Use a range (not an exact pin) because
+# Dependabot's updater container ships its own uv version (currently 0.12.1)
+# and an exact pin makes every Dependabot update fail with
+# tool_version_not_supported.
+required-version = ">=0.12.1,<0.13"
 # Supply-chain cooling-off: never resolve a release published in the last 30
 # days, so a freshly-compromised version can't slip into a lock refresh.
 exclude-newer = "30 days"
