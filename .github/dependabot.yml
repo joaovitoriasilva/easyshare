@@ -1,0 +1,50 @@
+version: 2
+
+updates:
+  # Backend Python dependencies (managed via uv)
+  - package-ecosystem: "uv"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+      include: scope
+    labels:
+      - "dependencies"
+      - "backend"
+
+  # Frontend npm dependencies
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+      include: scope
+    labels:
+      - "dependencies"
+      - "frontend"
+
+  # Docker base images
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+      include: scope
+    labels:
+      - "dependencies"
+      - "docker"
+
+  # GitHub Actions used in workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+      include: scope
+    labels:
+      - "dependencies"
+      - "ci"
