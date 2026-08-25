@@ -15,6 +15,9 @@ const route = useRoute();
 const { online } = useNetworkStatus();
 
 const mobileOpen = ref(false);
+const packagesActive = computed(
+  () => route.name === "dashboard" || route.name === "package",
+);
 
 const startYear = 2026
 const yearRange = computed(() => {
@@ -69,39 +72,47 @@ function logout(): void {
         </RouterLink>
 
         <!-- Desktop navigation -->
-        <nav aria-label="Main" class="hidden items-center gap-3 md:flex">
+        <nav aria-label="Main" class="hidden items-center gap-1 lg:flex">
+          <RouterLink
+            v-if="auth.user"
+            :to="{ name: 'dashboard' }"
+            :aria-current="packagesActive ? 'page' : undefined"
+            class="flex min-h-9 items-center rounded-md px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground aria-[current=page]:bg-accent aria-[current=page]:font-medium aria-[current=page]:text-foreground"
+          >
+            Packages
+          </RouterLink>
           <RouterLink
             v-if="auth.user"
             :to="{ name: 'activity' }"
-            class="text-sm text-muted-foreground hover:text-foreground"
+            class="flex min-h-9 items-center rounded-md px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground aria-[current=page]:bg-accent aria-[current=page]:font-medium aria-[current=page]:text-foreground"
           >
             Activity
           </RouterLink>
           <RouterLink
             v-if="auth.user?.is_admin"
             :to="{ name: 'admin-users' }"
-            class="text-sm text-muted-foreground hover:text-foreground"
+            class="flex min-h-9 items-center rounded-md px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground aria-[current=page]:bg-accent aria-[current=page]:font-medium aria-[current=page]:text-foreground"
           >
             Users
           </RouterLink>
           <RouterLink
             v-if="auth.user?.is_admin"
             :to="{ name: 'admin-audit' }"
-            class="text-sm text-muted-foreground hover:text-foreground"
+            class="flex min-h-9 items-center rounded-md px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground aria-[current=page]:bg-accent aria-[current=page]:font-medium aria-[current=page]:text-foreground"
           >
             Audit
           </RouterLink>
           <RouterLink
             v-if="auth.user?.is_admin"
             :to="{ name: 'admin-settings' }"
-            class="text-sm text-muted-foreground hover:text-foreground"
+            class="flex min-h-9 items-center rounded-md px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground aria-[current=page]:bg-accent aria-[current=page]:font-medium aria-[current=page]:text-foreground"
           >
             Settings
           </RouterLink>
           <RouterLink
             v-if="auth.user"
             :to="{ name: 'profile' }"
-            class="text-sm text-muted-foreground hover:text-foreground"
+            class="flex min-h-9 items-center rounded-md px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground aria-[current=page]:bg-accent aria-[current=page]:font-medium aria-[current=page]:text-foreground"
           >
             {{ auth.user.username }}
           </RouterLink>
@@ -113,7 +124,7 @@ function logout(): void {
         </nav>
 
         <!-- Mobile controls -->
-        <div class="flex items-center gap-1 md:hidden">
+        <div class="flex items-center gap-1 lg:hidden">
           <ThemeToggle />
           <Button
             v-if="auth.user"
@@ -131,39 +142,46 @@ function logout(): void {
       </div>
 
       <!-- Mobile navigation panel -->
-      <nav v-if="auth.user && mobileOpen" id="mobile-nav" aria-label="Mobile" class="border-t md:hidden">
+      <nav v-if="auth.user && mobileOpen" id="mobile-nav" aria-label="Mobile" class="border-t lg:hidden">
         <div class="container flex flex-col gap-1 py-3">
           <RouterLink
+            :to="{ name: 'dashboard' }"
+            :aria-current="packagesActive ? 'page' : undefined"
+            class="flex min-h-11 items-center rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground aria-[current=page]:bg-accent aria-[current=page]:font-medium aria-[current=page]:text-foreground"
+          >
+            Packages
+          </RouterLink>
+          <RouterLink
             :to="{ name: 'activity' }"
-            class="rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+            class="flex min-h-11 items-center rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground aria-[current=page]:bg-accent aria-[current=page]:font-medium aria-[current=page]:text-foreground"
           >
             Activity
           </RouterLink>
           <RouterLink
             v-if="auth.user?.is_admin"
             :to="{ name: 'admin-users' }"
-            class="rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+            class="flex min-h-11 items-center rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground aria-[current=page]:bg-accent aria-[current=page]:font-medium aria-[current=page]:text-foreground"
           >
             Users
           </RouterLink>
           <RouterLink
             v-if="auth.user?.is_admin"
             :to="{ name: 'admin-audit' }"
-            class="rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+            class="flex min-h-11 items-center rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground aria-[current=page]:bg-accent aria-[current=page]:font-medium aria-[current=page]:text-foreground"
           >
             Audit
           </RouterLink>
           <RouterLink
             v-if="auth.user?.is_admin"
             :to="{ name: 'admin-settings' }"
-            class="rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+            class="flex min-h-11 items-center rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground aria-[current=page]:bg-accent aria-[current=page]:font-medium aria-[current=page]:text-foreground"
           >
             Settings
           </RouterLink>
           <div class="mt-1 flex items-center justify-between border-t pt-2">
             <RouterLink
               :to="{ name: 'profile' }"
-              class="rounded-md px-2 py-1 text-sm text-muted-foreground hover:text-foreground"
+              class="flex min-h-10 items-center rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground aria-[current=page]:bg-accent aria-[current=page]:font-medium aria-[current=page]:text-foreground"
             >
               {{ auth.user.username }}
             </RouterLink>

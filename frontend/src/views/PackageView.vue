@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, type ComponentPublicInstance } from "vue";
+import { computed, nextTick, onMounted, ref, type ComponentPublicInstance } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   ArrowLeft,
@@ -130,6 +130,7 @@ const editing = ref(false);
 const editName = ref("");
 const editDescription = ref("");
 const savingDetails = ref(false);
+const editNameInput = ref<InstanceType<typeof Input> | null>(null);
 
 const visibility = ref<Visibility>("public");
 const emailsText = ref("");
@@ -281,17 +282,21 @@ const restrictedEmailsOk = computed(
     (parseEmailList(emailsText.value).length > 0 && emailIssues.value.length === 0),
 );
 
-function startEdit(): void {
+async function startEdit(): Promise<void> {
   if (!pkg.value) {
     return;
   }
   editName.value = pkg.value.name;
   editDescription.value = pkg.value.description ?? "";
   editing.value = true;
+  await nextTick();
+  editNameInput.value?.focus();
 }
 
-function cancelEdit(): void {
+async function cancelEdit(): Promise<void> {
   editing.value = false;
+  await nextTick();
+  document.getElementById("edit-package-button")?.focus();
 }
 
 async function saveDetails(): Promise<void> {
@@ -751,7 +756,7 @@ onMounted(() => {
           <p v-if="pkg.description" class="break-words text-muted-foreground">{{ pkg.description }}</p>
         </div>
         <div class="flex shrink-0 gap-2">
-          <Button variant="outline" size="sm" @click="startEdit">
+          <Button id="edit-package-button" variant="outline" size="sm" @click="startEdit">
             <Pencil class="h-4 w-4" /> Edit
           </Button>
           <Button variant="destructive" size="sm" @click="deletePackage">
@@ -769,7 +774,12 @@ onMounted(() => {
           <CardContent class="space-y-4">
             <div class="space-y-2">
               <Label for="edit-name">Name</Label>
-              <Input id="edit-name" v-model="editName" placeholder="Project assets" />
+              <Input
+                id="edit-name"
+                ref="editNameInput"
+                v-model="editName"
+                placeholder="Project assets"
+              />
             </div>
             <div class="space-y-2">
               <Label for="edit-desc">Description</Label>
@@ -1092,6 +1102,7 @@ onMounted(() => {
               <div class="flex flex-col gap-2 sm:flex-row">
                 <Input
                   v-model="fileFilter"
+                  aria-label="Filter files"
                   placeholder="Filter files..."
                   class="sm:flex-1"
                 />

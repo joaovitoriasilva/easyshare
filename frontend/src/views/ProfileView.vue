@@ -119,31 +119,39 @@ onMounted(loadUsage);
       </CardHeader>
       <CardContent>
         <dl class="divide-y text-sm">
-          <div class="flex items-start justify-between gap-4 py-3 first:pt-0">
+          <div
+            class="flex flex-col gap-1 py-3 first:pt-0 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
+          >
             <dt class="flex items-center gap-2 text-muted-foreground">
               <UserIcon class="h-4 w-4" /> Username
             </dt>
-            <dd class="break-all text-right font-medium">{{ auth.user.username }}</dd>
+            <dd class="break-words font-medium sm:text-right">{{ auth.user.username }}</dd>
           </div>
-          <div class="flex items-start justify-between gap-4 py-3">
+          <div
+            class="flex flex-col gap-1 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
+          >
             <dt class="flex items-center gap-2 text-muted-foreground">
               <Mail class="h-4 w-4" /> Email
             </dt>
-            <dd class="break-all text-right font-medium">{{ auth.user.email }}</dd>
+            <dd class="break-words font-medium sm:text-right">{{ auth.user.email }}</dd>
           </div>
-          <div class="flex items-start justify-between gap-4 py-3">
+          <div
+            class="flex flex-col gap-1 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
+          >
             <dt class="flex items-center gap-2 text-muted-foreground">
               <Shield class="h-4 w-4" /> Role
             </dt>
-            <dd class="text-right font-medium">
+            <dd class="font-medium sm:text-right">
               {{ auth.user.is_admin ? "Administrator" : "User" }}
             </dd>
           </div>
-          <div class="flex items-start justify-between gap-4 py-3 last:pb-0">
+          <div
+            class="flex flex-col gap-1 py-3 last:pb-0 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
+          >
             <dt class="flex items-center gap-2 text-muted-foreground">
               <Calendar class="h-4 w-4" /> Member since
             </dt>
-            <dd class="text-right font-medium">{{ memberSince }}</dd>
+            <dd class="font-medium sm:text-right">{{ memberSince }}</dd>
           </div>
         </dl>
       </CardContent>

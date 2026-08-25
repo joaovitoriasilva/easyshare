@@ -18,12 +18,20 @@ defineEmits<{
 }>();
 
 const visible = ref(false);
+const input = ref<InstanceType<typeof Input> | null>(null);
+
+function focus(options?: FocusOptions): void {
+  input.value?.focus(options);
+}
+
+defineExpose({ focus });
 </script>
 
 <template>
   <div class="relative">
     <Input
       :id="id"
+      ref="input"
       :model-value="modelValue"
       :type="visible ? 'text' : 'password'"
       :placeholder="placeholder"

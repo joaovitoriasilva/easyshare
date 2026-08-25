@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, type ComponentPublicInstance } from "vue";
+import { computed, nextTick, onMounted, ref, watch, type ComponentPublicInstance } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import {
   FileArchive,
@@ -56,6 +56,7 @@ const showForm = ref(false);
 const name = ref("");
 const description = ref("");
 const creating = ref(false);
+const packageNameInput = ref<InstanceType<typeof Input> | null>(null);
 
 const usagePercent = computed(() => {
   const current = usage.value;
@@ -120,6 +121,16 @@ function goToOffset(nextOffset: number): void {
   void load();
 }
 
+async function toggleCreateForm(): Promise<void> {
+  showForm.value = !showForm.value;
+  await nextTick();
+  if (showForm.value) {
+    packageNameInput.value?.focus();
+  } else {
+    document.getElementById("new-package-button")?.focus();
+  }
+}
+
 async function create(): Promise<void> {
   if (!name.value.trim()) {
     toast.warning("Package name is required");
@@ -158,11 +169,19 @@ function setFolderInput(el: Element | ComponentPublicInstance | null): void {
   }
 }
 
-/** Name a dropped batch after its top-level folder, else a dated fallback. */
+/** Name a dropped batch after its folder or first file. */
 function defaultPackageName(files: File[]): string {
   const withPath = files.find((file) => file.webkitRelativePath);
   const top = withPath?.webkitRelativePath.split("/")[0];
-  return top || `Upload ${new Date().toLocaleDateString()}`;
+  if (top) {
+    return top;
+  }
+  const firstName = files[0]?.name ?? "Upload";
+  if (files.length === 1) {
+    return firstName;
+  }
+  const suffix = ` + ${files.length - 1} more`;
+  return `${firstName.slice(0, 255 - suffix.length)}${suffix}`;
 }
 
 async function createFromFiles(files: File[]): Promise<void> {
@@ -215,7 +234,13 @@ onMounted(() => {
         <h1 class="text-2xl font-bold">Your packages</h1>
         <p class="text-muted-foreground">Create packages and share them securely</p>
       </div>
-      <Button class="w-full sm:w-auto" @click="showForm = !showForm">
+      <Button
+        id="new-package-button"
+        class="w-full sm:w-auto"
+        :aria-expanded="showForm"
+        aria-controls="create-package-form"
+        @click="toggleCreateForm"
+      >
         <Plus class="h-4 w-4" /> New package
       </Button>
     </div>
@@ -316,7 +341,7 @@ onMounted(() => {
       />
     </div>
 
-    <Card v-if="showForm">
+    <Card v-if="showForm" id="create-package-form">
       <CardHeader>
         <CardTitle>Create a package</CardTitle>
         <CardDescription>Give your package a name and optional description.</CardDescription>
@@ -325,7 +350,12 @@ onMounted(() => {
         <CardContent class="space-y-4">
           <div class="space-y-2">
             <Label for="pkg-name">Name</Label>
-            <Input id="pkg-name" v-model="name" placeholder="Project assets" />
+            <Input
+              id="pkg-name"
+              ref="packageNameInput"
+              v-model="name"
+              placeholder="Project assets"
+            />
           </div>
           <div class="space-y-2">
             <Label for="pkg-desc">Description</Label>
