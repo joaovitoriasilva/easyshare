@@ -40,16 +40,22 @@ jobs:
         run: uv sync --frozen
 
       - name: Audit Python dependencies
-        # One advisory is ignored deliberately; it is off EasyShare's code path:
+        # Two advisories are ignored deliberately; both are off EasyShare's code path:
         #   * GHSA-4xgf-cpjx-pc3j (pydantic-settings): symlink escape in
         #     NestedSecretsSettingsSource / secrets_dir, neither of which
         #     EasyShare uses. Fixed in 2.14.2 and held back only by the
         #     exclude-newer cooling-off; drop this ignore once the lock picks
         #     2.14.2 up.
+        #   * PYSEC-2026-3552 (cryptography): Bleichenbacher oracle in the
+        #     PKCS#7 pkcs7_decrypt_der/pem/smime S/MIME decryption helpers,
+        #     which EasyShare never calls. Fixed in 50.0.0 (released
+        #     2026-07-31) and held back only by the exclude-newer cooling-off;
+        #     drop this ignore once the lock picks 50.0.0 up.
         run: >-
           uvx pip-audit --require-hashes --disable-pip
           -r <(uv export --frozen --no-header --no-emit-project --no-dev)
           --ignore-vuln GHSA-4xgf-cpjx-pc3j
+          --ignore-vuln PYSEC-2026-3552
 
       - name: Lint (ruff)
         run: uv run --no-sync ruff check app tests
