@@ -18,12 +18,13 @@
     "@sentry/vue": "^10.67.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "pinia": "^3.0.4",
+    "pinia": "^4.0.3",
     "qrcode.vue": "^3.10.0",
     "reka-ui": "^2.10.1",
     "tailwind-merge": "^3.6.0",
-    "vue": "^3.4.35",
-    "vue-router": "^5.1.0"
+    "vue": "^3.5.41",
+    "@vue/devtools-api": "^8.2.1",
+    "vue-router": "^5.2.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.2",
@@ -34,7 +35,7 @@
     "@vue/test-utils": "^2.4.11",
     "eslint": "^10.7.0",
     "eslint-plugin-vue": "^10.9.2",
-    "jsdom": "^29.1.1",
+    "jsdom": "^30.0.1",
     "postcss": "^8.5.19",
     "tailwindcss": "^4.3.2",
     "typescript": "~6.0.0",

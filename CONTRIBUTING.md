@@ -1,10 +1,10 @@
-# Contributing to Endurain
+# Contributing to EasyShare
  
-Thank you for considering contributing to Endurain! Before diving in, please read these guidelines carefully. They exist to make the process sustainable for everyone.
+Thank you for considering contributing to EasyShare! Before diving in, please read these guidelines carefully. They exist to make the process sustainable for everyone.
 
 ## A Note on Maintainership
  
-Endurain is maintained by a single person in their spare time. This means review bandwidth is genuinely limited. Following these guidelines isn't bureaucracy, it's what allows contributions to actually get merged rather than sitting in a queue indefinitely.
+EasyShare is maintained by a single person in their spare time. This means review bandwidth is genuinely limited. Following these guidelines isn't bureaucracy, it's what allows contributions to actually get merged rather than sitting in a queue indefinitely.
 
 ## Before You Write Any Code
  
@@ -28,7 +28,7 @@ PRs that are too large to review efficiently will be asked to be split before th
 
 ## Prerequisites
 
-- **Python 3.13+**
+- **Python 3.14+**
 - **uv** (installed globally) — see [docs.astral.sh/uv](https://docs.astral.sh/uv/)
 - **Hatch** is included as a dev dependency — run `cd backend && uv sync` once to install it
 
@@ -101,7 +101,7 @@ PRs that are too large to review efficiently will be asked to be split before th
 
    CI will enforce these checks on all PRs.
 
-6. **Push and open a PR** against the `master` branch, filling in the PR template completely. The PR title must also follow the rules above — the *Conventional Commits* workflow validates it on every edit.
+6. **Push and open a PR** against the `main` branch, filling in the PR template completely. The PR title must also follow the rules above — the *Conventional Commits* workflow validates it on every edit.
 
 ## Response Time Expectations
  
@@ -109,4 +109,4 @@ Reviews may take days to weeks depending on availability. A PR sitting without a
 
 ## Thank You
  
-Even small contributions make a real difference. Thank you for taking the time to improve Endurain for everyone who self-hosts it.
+Even small contributions make a real difference. Thank you for taking the time to improve EasyShare for everyone who self-hosts it.
