@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-08-25
+
+### Changed
+
+- Improved responsive navigation, activity, audit, and user-management views across phone, tablet, and desktop screens.
+- Replaced narrow-screen audit and user tables with readable card layouts while retaining desktop tables for larger screens.
+- Improved keyboard focus behavior for package and user-management forms.
+
+### Fixed
+
+- Kept user-management actions visible without horizontal scrolling on small and medium screens.
+- Made profile details and long account values wrap cleanly on narrow screens.
+
 ## [0.6.1] - 2026-08-25
 
 ### Added
@@ -182,6 +195,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Hardened Docker images with improved user permissions and security, then consolidated frontend and backend into a single image.
 - Minor UI polish (padding, spacing, footer year display).
 
+[0.6.2]: https://github.com/joaovitoriasilva/easyshare/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/joaovitoriasilva/easyshare/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/joaovitoriasilva/easyshare/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/joaovitoriasilva/easyshare/compare/v0.5.0...v0.5.1

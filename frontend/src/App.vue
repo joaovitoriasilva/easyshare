@@ -203,7 +203,7 @@ function logout(): void {
           EasyShare
         </span>
         <span class="flex items-center">
-          {{ yearRange }} • v0.6.1 •
+          {{ yearRange }} • v0.6.2 •
           <a
             href="https://github.com/joaovitoriasilva/easyshare"
             target="_blank"
