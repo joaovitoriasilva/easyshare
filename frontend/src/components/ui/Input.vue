@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { cn } from "@/lib/utils";
+
+const input = ref<HTMLInputElement | null>(null);
 
 const props = defineProps<{
   modelValue?: string | number;
@@ -20,10 +22,17 @@ const model = computed({
   // `string` contract and consumers can safely call string methods on it.
   set: (value: string | number) => emit("update:modelValue", String(value)),
 });
+
+function focus(options?: FocusOptions): void {
+  input.value?.focus(options);
+}
+
+defineExpose({ focus });
 </script>
 
 <template>
   <input
+    ref="input"
     v-model="model"
     :type="type ?? 'text'"
     :placeholder="placeholder"

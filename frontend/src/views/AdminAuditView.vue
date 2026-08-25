@@ -84,7 +84,7 @@ onMounted(load);
       <Skeleton v-for="n in 6" :key="n" class="h-10 w-full" />
     </div>
     <template v-else>
-      <AuditLogTable :events="events" />
+      <AuditLogTable :events="events" technical />
       <Pagination
         v-if="total > limit"
         :total="total"

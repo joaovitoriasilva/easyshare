@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref, type ComponentPublicInstance } from "vue";
 import { adminApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { AdminUser, AdminUserUpdate } from "@/api/types";
@@ -25,6 +25,10 @@ const editUsername = ref("");
 const editEmail = ref("");
 const editQuotaMb = ref("");
 const bulkQuotaMb = ref("");
+type FocusableInput = { focus: (options?: FocusOptions) => void };
+
+const editUsernameInput = ref<FocusableInput | null>(null);
+const resetPasswordInput = ref<FocusableInput | null>(null);
 
 const resetPwId = ref<number | null>(null);
 const resetPassword = ref("");
@@ -91,6 +95,20 @@ function quotaLabel(user: AdminUser): string {
   return formatBytes(user.storage_quota);
 }
 
+function setEditUsernameInput(element: Element | ComponentPublicInstance | null): void {
+  editUsernameInput.value =
+    element && "focus" in element && typeof element.focus === "function"
+      ? (element as FocusableInput)
+      : null;
+}
+
+function setResetPasswordInput(element: Element | ComponentPublicInstance | null): void {
+  resetPasswordInput.value =
+    element && "focus" in element && typeof element.focus === "function"
+      ? (element as FocusableInput)
+      : null;
+}
+
 async function patch(user: AdminUser, changes: AdminUserUpdate): Promise<void> {
   try {
     const updated = await adminApi.updateUser(user.id, changes);
@@ -132,29 +150,43 @@ async function deleteUser(user: AdminUser): Promise<void> {
   }
 }
 
-function startEdit(user: AdminUser): void {
+async function startEdit(user: AdminUser): Promise<void> {
   editingId.value = user.id;
   resetPwId.value = null;
   editUsername.value = user.username;
   editEmail.value = user.email;
   editQuotaMb.value = String(Math.round(user.storage_quota / (1024 * 1024)));
+  await nextTick();
+  editUsernameInput.value?.focus();
 }
 
-function cancelEdit(): void {
+async function cancelEdit(): Promise<void> {
+  const userId = editingId.value;
   editingId.value = null;
+  await nextTick();
+  if (userId !== null) {
+    document.getElementById(`edit-user-${userId}`)?.focus();
+  }
 }
 
-function startReset(user: AdminUser): void {
+async function startReset(user: AdminUser): Promise<void> {
   editingId.value = null;
   resetPwId.value = user.id;
   resetPassword.value = "";
   resetConfirmPassword.value = "";
+  await nextTick();
+  resetPasswordInput.value?.focus();
 }
 
-function cancelReset(): void {
+async function cancelReset(): Promise<void> {
+  const userId = resetPwId.value;
   resetPwId.value = null;
   resetPassword.value = "";
   resetConfirmPassword.value = "";
+  await nextTick();
+  if (userId !== null) {
+    document.getElementById(`reset-password-user-${userId}`)?.focus();
+  }
 }
 
 async function submitReset(user: AdminUser): Promise<void> {
@@ -164,7 +196,7 @@ async function submitReset(user: AdminUser): Promise<void> {
   try {
     await adminApi.resetPassword(user.id, resetPassword.value);
     toast.success(`Password reset for ${user.username}`);
-    cancelReset();
+    await cancelReset();
   } catch (err) {
     toast.error(err instanceof ApiError ? err.message : "Failed to reset password");
   }
@@ -241,9 +273,9 @@ onMounted(load);
       <Skeleton v-for="n in 6" :key="n" class="h-12 w-full" />
     </div>
     <template v-else>
-      <div class="overflow-x-auto rounded-md border">
-        <table class="w-full text-sm">
-          <thead class="bg-muted/50 text-left text-muted-foreground">
+      <div class="rounded-md border">
+        <table class="block w-full text-sm xl:table">
+          <thead class="hidden bg-muted/50 text-left text-muted-foreground xl:table-header-group">
             <tr>
               <th class="p-3 font-medium">Username</th>
               <th class="p-3 font-medium">Email</th>
@@ -253,49 +285,73 @@ onMounted(load);
               <th class="p-3 text-right font-medium">Actions</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody class="block divide-y xl:table-row-group xl:divide-y-0">
             <template v-for="user in users" :key="user.id">
-              <tr class="border-t">
-                <td class="p-3">
-                  <Input
-                    v-if="editingId === user.id"
-                    v-model="editUsername"
-                    class="h-8"
-                  />
-                  <span v-else>
-                    {{ user.username }}
-                    <span v-if="isSelf(user)" class="ml-1 text-xs text-muted-foreground">
-                      (you)
+              <tr class="grid gap-3 p-4 xl:table-row xl:border-t xl:p-0">
+                <td
+                  class="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-center gap-3 xl:table-cell xl:p-3"
+                >
+                  <span class="text-xs text-muted-foreground xl:hidden">Username</span>
+                  <div class="min-w-0">
+                    <Input
+                      v-if="editingId === user.id"
+                      :ref="setEditUsernameInput"
+                      v-model="editUsername"
+                      class="h-10 xl:h-8"
+                    />
+                    <span v-else class="break-words">
+                      {{ user.username }}
+                      <span v-if="isSelf(user)" class="ml-1 text-xs text-muted-foreground">
+                        (you)
+                      </span>
                     </span>
-                  </span>
+                  </div>
                 </td>
-                <td class="p-3">
-                  <Tooltip
-                    v-if="editingId === user.id"
-                    content="Enter a valid email address"
-                    :open="showEditEmailError"
+                <td
+                  class="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-center gap-3 xl:table-cell xl:p-3"
+                >
+                  <span class="text-xs text-muted-foreground xl:hidden">Email</span>
+                  <div class="min-w-0">
+                    <Tooltip
+                      v-if="editingId === user.id"
+                      content="Enter a valid email address"
+                      :open="showEditEmailError"
+                    >
+                      <Input v-model="editEmail" type="email" class="h-10 xl:h-8" />
+                    </Tooltip>
+                    <span v-else class="break-words text-muted-foreground">
+                      {{ user.email }}
+                    </span>
+                  </div>
+                </td>
+                <td
+                  class="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-center gap-3 xl:table-cell xl:p-3"
+                >
+                  <span class="text-xs text-muted-foreground xl:hidden">Role</span>
+                  <span
+                    :class="user.is_admin ? 'font-medium text-primary' : 'text-muted-foreground'"
                   >
-                    <Input v-model="editEmail" type="email" class="h-8" />
-                  </Tooltip>
-                  <span v-else class="text-muted-foreground">{{ user.email }}</span>
-                </td>
-                <td class="p-3">
-                  <span :class="user.is_admin ? 'font-medium text-primary' : 'text-muted-foreground'">
                     {{ user.is_admin ? "Admin" : "User" }}
                   </span>
                 </td>
-                <td class="p-3">
+                <td
+                  class="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-center gap-3 xl:table-cell xl:p-3"
+                >
+                  <span class="text-xs text-muted-foreground xl:hidden">Status</span>
                   <span :class="user.is_active ? 'text-muted-foreground' : 'text-destructive'">
                     {{ user.is_active ? "Active" : "Inactive" }}
                   </span>
                 </td>
-                <td class="p-3">
-                  <div v-if="editingId === user.id" class="flex items-center gap-1">
+                <td
+                  class="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-center gap-3 xl:table-cell xl:p-3"
+                >
+                  <span class="text-xs text-muted-foreground xl:hidden">Storage</span>
+                  <div v-if="editingId === user.id" class="flex min-w-0 items-center gap-1">
                     <Input
                       v-model="editQuotaMb"
                       type="number"
                       min="0"
-                      class="h-8 w-20"
+                      class="h-10 min-w-0 flex-1 xl:h-8 xl:w-20 xl:flex-none"
                       title="Storage quota in MB. 0 = unlimited."
                     />
                     <span class="text-xs text-muted-foreground">MB</span>
@@ -304,22 +360,50 @@ onMounted(load);
                     {{ formatBytes(user.storage_used) }} / {{ quotaLabel(user) }}
                   </span>
                 </td>
-                <td class="p-3">
-                  <div class="flex justify-end gap-2">
+                <td class="space-y-2 xl:table-cell xl:p-3">
+                  <span class="block text-xs text-muted-foreground xl:hidden">Actions</span>
+                  <div class="flex flex-wrap gap-2 xl:flex-nowrap xl:justify-end">
                     <template v-if="editingId === user.id">
-                      <Button size="sm" :disabled="!editEmailValid || !editQuotaValid" @click="saveEdit(user)">Save</Button>
-                      <Button variant="ghost" size="sm" @click="cancelEdit">Cancel</Button>
+                      <Button
+                        size="sm"
+                        class="min-h-11 xl:min-h-9"
+                        :disabled="!editEmailValid || !editQuotaValid"
+                        @click="saveEdit(user)"
+                      >
+                        Save
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        class="min-h-11 xl:min-h-9"
+                        @click="cancelEdit"
+                      >
+                        Cancel
+                      </Button>
                     </template>
                     <template v-else>
-                      <Button variant="outline" size="sm" @click="startEdit(user)">
+                      <Button
+                        :id="`edit-user-${user.id}`"
+                        variant="outline"
+                        size="sm"
+                        class="min-h-11 xl:min-h-9"
+                        @click="startEdit(user)"
+                      >
                         Edit
                       </Button>
-                      <Button variant="outline" size="sm" @click="startReset(user)">
+                      <Button
+                        :id="`reset-password-user-${user.id}`"
+                        variant="outline"
+                        size="sm"
+                        class="min-h-11 xl:min-h-9"
+                        @click="startReset(user)"
+                      >
                         Reset password
                       </Button>
                       <Button
                         variant="outline"
                         size="sm"
+                        class="min-h-11 xl:min-h-9"
                         :disabled="isSelf(user)"
                         @click="toggleAdmin(user)"
                       >
@@ -328,6 +412,7 @@ onMounted(load);
                       <Button
                         variant="outline"
                         size="sm"
+                        class="min-h-11 xl:min-h-9"
                         :disabled="isSelf(user)"
                         @click="toggleActive(user)"
                       >
@@ -336,6 +421,7 @@ onMounted(load);
                       <Button
                         variant="destructive"
                         size="sm"
+                        class="min-h-11 xl:min-h-9"
                         :disabled="isSelf(user)"
                         @click="deleteUser(user)"
                       >
@@ -345,11 +431,11 @@ onMounted(load);
                   </div>
                 </td>
               </tr>
-              <tr v-if="resetPwId === user.id" class="border-t bg-muted/30">
-                <td colspan="6" class="p-3">
+              <tr v-if="resetPwId === user.id" class="block bg-muted/30 xl:table-row xl:border-t">
+                <td colspan="6" class="block p-4 xl:table-cell xl:p-3">
                   <form class="space-y-3" @submit.prevent="submitReset(user)">
                     <div class="flex flex-wrap items-start gap-3">
-                      <div class="space-y-1">
+                      <div class="w-full space-y-1 sm:w-auto">
                         <label
                           :for="`reset-pw-${user.id}`"
                           class="block text-xs text-muted-foreground"
@@ -358,9 +444,10 @@ onMounted(load);
                         </label>
                         <PasswordInput
                           :id="`reset-pw-${user.id}`"
+                          :ref="setResetPasswordInput"
                           v-model="resetPassword"
                           placeholder="New password"
-                          class="w-56"
+                          class="w-full sm:w-56"
                         />
                         <p
                           class="text-xs"
@@ -373,7 +460,7 @@ onMounted(load);
                           }}
                         </p>
                       </div>
-                      <div class="space-y-1">
+                      <div class="w-full space-y-1 sm:w-auto">
                         <label
                           :for="`reset-pw-confirm-${user.id}`"
                           class="block text-xs text-muted-foreground"
@@ -384,18 +471,29 @@ onMounted(load);
                           :id="`reset-pw-confirm-${user.id}`"
                           v-model="resetConfirmPassword"
                           placeholder="Confirm password"
-                          class="w-56"
+                          class="w-full sm:w-56"
                         />
                         <p v-if="showResetMismatch" class="text-xs text-destructive">
                           Passwords do not match.
                         </p>
                       </div>
                     </div>
-                    <div class="flex gap-2">
-                      <Button type="submit" size="sm" :disabled="!canSubmitReset">
+                    <div class="flex flex-wrap gap-2">
+                      <Button
+                        type="submit"
+                        size="sm"
+                        class="min-h-11 xl:min-h-9"
+                        :disabled="!canSubmitReset"
+                      >
                         Set password
                       </Button>
-                      <Button type="button" variant="ghost" size="sm" @click="cancelReset">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        class="min-h-11 xl:min-h-9"
+                        @click="cancelReset"
+                      >
                         Cancel
                       </Button>
                     </div>
@@ -403,8 +501,8 @@ onMounted(load);
                 </td>
               </tr>
             </template>
-            <tr v-if="users.length === 0">
-              <td colspan="6" class="p-4 text-center text-muted-foreground">
+            <tr v-if="users.length === 0" class="block xl:table-row">
+              <td colspan="6" class="block p-4 text-center text-muted-foreground xl:table-cell">
                 No users.
               </td>
             </tr>
