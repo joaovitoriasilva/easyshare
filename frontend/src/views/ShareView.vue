@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { Copy, Download, Lock, MailCheck, Package2, QrCode as QrCodeIcon, RotateCw, Share2, X } from "@lucide/vue";
+import { Copy, Download, FileArchive, Lock, MailCheck, Package2, QrCode as QrCodeIcon, RotateCw, Share2, X } from "@lucide/vue";
 import { publicApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { PublicShare } from "@/api/types";
@@ -20,8 +20,8 @@ import {
   CardContent,
   CardDescription,
   CardHeader,
-  CardTitle,
   Checkbox,
+  EmptyState,
   Input,
   Label,
   QrCode,
@@ -253,7 +253,7 @@ onMounted(load);
 
     <Card v-else-if="error && !share">
       <CardHeader>
-        <CardTitle>Share unavailable</CardTitle>
+        <h1 class="text-xl font-semibold leading-none">Share unavailable</h1>
         <CardDescription>{{ error }}</CardDescription>
       </CardHeader>
       <CardContent>
@@ -266,10 +266,10 @@ onMounted(load);
     <template v-else-if="share">
       <Card>
         <CardHeader>
-          <CardTitle class="flex items-center gap-2">
+          <h1 class="flex items-center gap-2 text-xl font-semibold leading-none">
             <Package2 class="h-5 w-5 shrink-0 text-primary" />
             <span class="min-w-0 break-words">{{ share.package_name }}</span>
-          </CardTitle>
+          </h1>
           <CardDescription v-if="share.package_description">
             {{ share.package_description }}
           </CardDescription>
@@ -289,6 +289,11 @@ onMounted(load);
                     id="email"
                     v-model="email"
                     type="email"
+                    name="email"
+                    autocomplete="email"
+                    inputmode="email"
+                    autocapitalize="none"
+                    :spellcheck="false"
                     placeholder="you@example.com"
                     :aria-invalid="showEmailError ? 'true' : undefined"
                   />
@@ -368,7 +373,16 @@ onMounted(load);
               </Button>
             </div>
 
-            <div class="space-y-3">
+            <EmptyState
+              v-if="files.length === 0"
+              :icon="FileArchive"
+              :heading-level="2"
+              title="No files available"
+              description="The owner has not added any files to this package yet."
+              class="min-h-40"
+            />
+
+            <div v-else class="space-y-3">
               <div class="flex items-center justify-between gap-3">
                 <label class="flex items-center gap-2 text-sm">
                   <Checkbox :model-value="allSelected" @update:model-value="toggleAll" />
@@ -459,9 +473,6 @@ onMounted(load);
                 </Button>
               </li>
             </ul>
-            <p v-if="files.length === 0" class="text-sm text-muted-foreground">
-              This package has no files.
-            </p>
           </div>
         </CardContent>
       </Card>

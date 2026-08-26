@@ -9,6 +9,7 @@ import {
 } from "reka-ui";
 import Button from "./Button.vue";
 import { useConfirm } from "@/composables/useConfirm";
+import { dialogOverlayClass, responsiveDialogContentClass } from "@/lib/dialog";
 
 const { state, accept, cancel } = useConfirm();
 
@@ -25,17 +26,23 @@ function onOpenChange(open: boolean): void {
 <template>
   <AlertDialogRoot :open="state.open" @update:open="onOpenChange">
     <AlertDialogPortal>
-      <AlertDialogOverlay class="fixed inset-0 z-[90] bg-black/50" />
+      <AlertDialogOverlay :class="dialogOverlayClass" />
       <AlertDialogContent
-        class="fixed left-1/2 top-1/2 z-[100] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-card p-4 text-card-foreground shadow-lg focus:outline-hidden"
+        :class="responsiveDialogContentClass()"
       >
         <AlertDialogTitle class="text-lg font-semibold">{{ state.title }}</AlertDialogTitle>
         <AlertDialogDescription class="mt-2 text-sm text-muted-foreground">
           {{ state.message }}
         </AlertDialogDescription>
         <div class="mt-6 flex justify-end gap-2">
-          <Button variant="outline" @click="cancel">{{ state.cancelText }}</Button>
-          <Button :variant="state.destructive ? 'destructive' : 'default'" @click="accept">
+          <Button class="h-11 sm:h-10" variant="outline" @click="cancel">
+            {{ state.cancelText }}
+          </Button>
+          <Button
+            class="h-11 sm:h-10"
+            :variant="state.destructive ? 'destructive' : 'default'"
+            @click="accept"
+          >
             {{ state.confirmText }}
           </Button>
         </div>

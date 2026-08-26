@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { AuditEvent } from "@/api/types";
+import { History } from "@lucide/vue";
+import { EmptyState } from "@/components/ui";
 import {
   formatAuditAction,
   formatAuditActor,
@@ -7,7 +9,18 @@ import {
   formatAuditTarget,
 } from "@/lib/audit";
 
-defineProps<{ events: AuditEvent[]; technical?: boolean }>();
+withDefaults(
+  defineProps<{
+    events: AuditEvent[];
+    technical?: boolean;
+    emptyTitle?: string;
+    emptyDescription?: string;
+  }>(),
+  {
+    emptyTitle: "No activity yet",
+    emptyDescription: undefined,
+  },
+);
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleString();
@@ -16,9 +29,15 @@ function formatTime(iso: string): string {
 </script>
 
 <template>
-  <div v-if="events.length === 0" class="rounded-md border p-4 text-center text-muted-foreground">
-    No activity yet.
-  </div>
+  <EmptyState
+    v-if="events.length === 0"
+    :icon="History"
+    :title="emptyTitle"
+    :description="emptyDescription"
+    :heading-level="2"
+  >
+    <slot name="empty-action" />
+  </EmptyState>
 
   <ol v-else class="space-y-3 lg:hidden">
     <li v-for="event in events" :key="event.id" class="rounded-md border bg-card p-4">
