@@ -204,6 +204,8 @@ onMounted(loadUsage);
             <PasswordInput
               id="current-password"
               v-model="currentPassword"
+              name="current-password"
+              autocomplete="current-password"
               placeholder="Current password"
             />
           </div>
@@ -212,6 +214,8 @@ onMounted(loadUsage);
             <PasswordInput
               id="new-password"
               v-model="newPassword"
+              name="new-password"
+              autocomplete="new-password"
               placeholder="New password"
             />
             <PasswordStrength :password="newPassword" />
@@ -231,6 +235,8 @@ onMounted(loadUsage);
             <PasswordInput
               id="confirm-password"
               v-model="confirmPassword"
+              name="confirm-password"
+              autocomplete="new-password"
               placeholder="Confirm new password"
             />
             <p v-if="showPasswordMismatch" class="text-xs text-destructive">

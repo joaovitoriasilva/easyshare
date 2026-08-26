@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, type ComponentPublicInstance } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   ArrowLeft,
@@ -24,6 +24,7 @@ import { fileIcon } from "@/lib/fileIcon";
 import { invalidEmails, parseEmailList } from "@/lib/validation";
 import { useToasts } from "@/composables/useToasts";
 import { useConfirm } from "@/composables/useConfirm";
+import { useFilePicker } from "@/composables/useFilePicker";
 import { useUploads, type UploadItem } from "@/composables/useUploads";
 import { useArchiveDownload } from "@/composables/useArchiveDownload";
 import {
@@ -60,9 +61,6 @@ const share = ref<Share | null>(null);
 const stats = ref<PackageStats | null>(null);
 const error = ref<string | null>(null);
 const loading = ref(true);
-const fileInput = ref<HTMLInputElement | null>(null);
-const folderInput = ref<HTMLInputElement | null>(null);
-const dragging = ref(false);
 const showQr = ref(false);
 const qr = ref<InstanceType<typeof QrCode> | null>(null);
 
@@ -74,6 +72,15 @@ const { uploadsFor, isUploading, uploadRateFor, startUploads, cancelUpload, retr
 const uploads = uploadsFor(packageId);
 const uploading = isUploading(packageId);
 const uploadRate = uploadRateFor(packageId);
+const {
+  dragging,
+  setFileInput,
+  setFolderInput,
+  onPick,
+  onDrop,
+  openFiles,
+  openFolder,
+} = useFilePicker(runUploads);
 
 // Archive (zip) download of the whole package (or a selection) with an in-app
 // progress read-out; falls back to a native browser download when too large to
@@ -343,45 +350,6 @@ function runUploads(files: File[]): void {
     pkg.value?.name ?? "",
     appendUploadedFile,
   );
-}
-
-function onUpload(event: Event): void {
-  const target = event.target as HTMLInputElement;
-  const files = target.files ? Array.from(target.files) : [];
-  runUploads(files);
-  target.value = "";
-}
-
-// Folder picker: browsers expose every file under the chosen directory via the
-// same FileList. Names are flattened server-side (the stored filename keeps the
-// leaf name), so a whole folder can be added in one action.
-function onFolderUpload(event: Event): void {
-  const target = event.target as HTMLInputElement;
-  const files = target.files ? Array.from(target.files) : [];
-  runUploads(files);
-  target.value = "";
-}
-
-// `webkitdirectory` / `directory` are not standard, typed input attributes, so
-// set them imperatively on the element via a function ref (which also captures
-// the ref used to open the picker).
-function setFolderInput(
-  el: Element | ComponentPublicInstance | null,
-): void {
-  const input = el instanceof HTMLInputElement ? el : null;
-  folderInput.value = input;
-  if (input) {
-    input.setAttribute("webkitdirectory", "");
-    input.setAttribute("directory", "");
-  }
-}
-
-function onDrop(event: DragEvent): void {
-  dragging.value = false;
-  const files = event.dataTransfer?.files;
-  if (files && files.length > 0) {
-    runUploads(Array.from(files));
-  }
 }
 
 /** Percent of an interrupted upload already received by the server. */
@@ -809,11 +777,11 @@ onMounted(() => {
           </CardHeader>
           <CardContent class="space-y-4">
             <input
-              ref="fileInput"
+              :ref="setFileInput"
               type="file"
               multiple
               class="hidden"
-              @change="onUpload"
+              @change="onPick"
             />
             <!-- webkitdirectory is set imperatively (not a standard typed
                  attribute) so a whole folder can be selected at once. -->
@@ -822,7 +790,7 @@ onMounted(() => {
               type="file"
               multiple
               class="hidden"
-              @change="onFolderUpload"
+              @change="onPick"
             />
             <!-- Single-file picker for resuming an interrupted upload: the
                  browser cannot re-open the original file after a reload, so the
@@ -875,7 +843,7 @@ onMounted(() => {
             </div>
 
             <div
-              class="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed px-4 py-8 text-center transition-colors"
+              class="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed px-4 py-5 text-center transition-colors sm:py-8"
               :class="[
                 dragging ? 'border-primary bg-primary/5' : 'border-input',
                 uploading ? 'pointer-events-none opacity-60' : '',
@@ -887,17 +855,18 @@ onMounted(() => {
             >
               <Upload class="h-6 w-6 text-muted-foreground" />
               <div>
-                <p class="text-sm">Drag and drop files or a folder here</p>
+                <p class="hidden text-sm md:block">Drag and drop files or a folder here</p>
+                <p class="text-sm md:hidden">Choose files or a folder</p>
                 <p class="text-xs text-muted-foreground">
                   Up to {{ formatBytes(auth.maxFileSize) }} per file
                 </p>
               </div>
-              <div class="flex flex-wrap items-center justify-center gap-2">
+              <div class="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-center">
                 <Button
                   variant="outline"
                   size="sm"
                   :disabled="uploading"
-                  @click="fileInput?.click()"
+                  @click="openFiles"
                 >
                   <Upload class="h-4 w-4" /> Choose files
                 </Button>
@@ -905,7 +874,7 @@ onMounted(() => {
                   variant="outline"
                   size="sm"
                   :disabled="uploading"
-                  @click="folderInput?.click()"
+                  @click="openFolder"
                 >
                   <FolderUp class="h-4 w-4" /> Choose folder
                 </Button>

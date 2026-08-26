@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { RouterLink } from "vue-router";
 import { auditApi } from "@/api";
 import { ApiError } from "@/api/client";
 import type { AuditEvent } from "@/api/types";
@@ -62,7 +63,17 @@ onMounted(load);
       <Skeleton v-for="n in 6" :key="n" class="h-10 w-full" />
     </div>
     <template v-else>
-      <AuditLogTable :events="events" />
+      <AuditLogTable
+        :events="events"
+        empty-title="No share activity yet"
+        empty-description="Visits and downloads will appear after you enable sharing on a package."
+      >
+        <template #empty-action>
+          <RouterLink to="/dashboard" class="text-sm font-medium text-primary hover:underline">
+            View packages
+          </RouterLink>
+        </template>
+      </AuditLogTable>
       <Pagination
         v-if="total > limit"
         :total="total"

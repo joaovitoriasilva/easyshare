@@ -13,7 +13,6 @@ import {
   CardDescription,
   CardFooter,
   CardHeader,
-  CardTitle,
   Input,
   Label,
   PasswordInput,
@@ -62,7 +61,7 @@ async function submit(): Promise<void> {
   <div class="mx-auto max-w-md">
     <Card>
       <CardHeader>
-        <CardTitle>Create your account</CardTitle>
+        <h1 class="text-xl font-semibold leading-none">Create your account</h1>
         <CardDescription>Start creating and sharing packages</CardDescription>
       </CardHeader>
       <form @submit.prevent="submit">
@@ -74,6 +73,11 @@ async function submit(): Promise<void> {
                 id="email"
                 v-model="email"
                 type="email"
+                name="email"
+                autocomplete="email"
+                inputmode="email"
+                autocapitalize="none"
+                :spellcheck="false"
                 placeholder="joao@example.com"
                 :aria-invalid="showEmailError ? 'true' : undefined"
               />
@@ -84,6 +88,10 @@ async function submit(): Promise<void> {
             <Input
               id="username"
               v-model="username"
+              name="username"
+              autocomplete="username"
+              autocapitalize="none"
+              :spellcheck="false"
               placeholder="joao"
               :aria-invalid="username && !usernameValid ? 'true' : undefined"
             />
@@ -96,6 +104,8 @@ async function submit(): Promise<void> {
             <PasswordInput
               id="password"
               v-model="password"
+              name="new-password"
+              autocomplete="new-password"
               placeholder="Password"
               :aria-invalid="password && !passwordValid ? 'true' : undefined"
             />

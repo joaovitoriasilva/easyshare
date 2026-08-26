@@ -446,6 +446,8 @@ onMounted(load);
                           :id="`reset-pw-${user.id}`"
                           :ref="setResetPasswordInput"
                           v-model="resetPassword"
+                          name="reset-password"
+                          autocomplete="new-password"
                           placeholder="New password"
                           class="w-full sm:w-56"
                         />
@@ -470,6 +472,8 @@ onMounted(load);
                         <PasswordInput
                           :id="`reset-pw-confirm-${user.id}`"
                           v-model="resetConfirmPassword"
+                          name="reset-password-confirm"
+                          autocomplete="new-password"
                           placeholder="Confirm password"
                           class="w-full sm:w-56"
                         />

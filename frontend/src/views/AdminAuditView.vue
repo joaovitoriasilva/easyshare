@@ -25,6 +25,7 @@ const retentionLabel = computed(() => {
     ? `Events older than ${retention.value} day${retention.value === 1 ? "" : "s"} are automatically deleted.`
     : "Events are kept indefinitely.";
 });
+const hasFilters = computed(() => Boolean(action.value.trim() || actor.value.trim()));
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -48,6 +49,12 @@ async function load(): Promise<void> {
 function applyFilters(): void {
   offset.value = 0;
   load();
+}
+
+function clearFilters(): void {
+  action.value = "";
+  actor.value = "";
+  applyFilters();
 }
 
 function goToOffset(nextOffset: number): void {
@@ -84,7 +91,20 @@ onMounted(load);
       <Skeleton v-for="n in 6" :key="n" class="h-10 w-full" />
     </div>
     <template v-else>
-      <AuditLogTable :events="events" technical />
+      <AuditLogTable
+        :events="events"
+        technical
+        :empty-title="hasFilters ? 'No matching events' : 'No audit events yet'"
+        :empty-description="hasFilters
+          ? 'Try broadening your filters or clear them to see all events.'
+          : 'Security events will appear here as people use the service.'"
+      >
+        <template v-if="hasFilters" #empty-action>
+          <Button variant="outline" size="sm" @click="clearFilters">
+            Clear filters
+          </Button>
+        </template>
+      </AuditLogTable>
       <Pagination
         v-if="total > limit"
         :total="total"
