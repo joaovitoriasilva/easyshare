@@ -5,7 +5,7 @@
 # Stage 0: pinned uv (by digest), used only to export a hash-locked
 # requirements file from uv.lock so the runtime install is fully reproducible
 # and every downloaded artifact is verified against the lock.
-FROM ghcr.io/astral-sh/uv:0.12.5@sha256:e85be844203885286c60ffad8a858d48afb6c5a5c237ca0e67f12e74b8f174b1 AS uv-dist
+FROM ghcr.io/astral-sh/uv:0.13.3@sha256:bee0a2a458fd956c5df7b8b4c5fed2257b0af34866e3da7b51db0be3acb375d1 AS uv-dist
 
 # Stage 1: build the frontend
 FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS frontend-build
